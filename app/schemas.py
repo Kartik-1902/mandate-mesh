@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Literal
 from uuid import UUID, uuid4
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, computed_field
 
 
 class UserIntentCredential(BaseModel):
@@ -56,10 +56,12 @@ class MerchantSignedCart(BaseModel):
     issued_at: datetime
     expires_at: datetime
 
+    @computed_field
     @property
     def subtotal_paise(self) -> int:
         return sum(li.line_total_paise for li in self.line_items)
 
+    @computed_field
     @property
     def total_paise(self) -> int:
         return self.subtotal_paise + self.tax_paise

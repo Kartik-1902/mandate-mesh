@@ -23,6 +23,11 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def get_session() -> Session:
+    """Returns a new SQLAlchemy Session."""
+    return SessionLocal()
+
+
 def get_db() -> Generator[Session, None, None]:
     """FastAPI / task dependency providing a scoped SQLAlchemy session."""
     db = SessionLocal()

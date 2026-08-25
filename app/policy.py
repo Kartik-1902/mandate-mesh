@@ -235,7 +235,7 @@ def authorize_mandate(
         if cart.total_paise > available_budget:
             _reject_policy(
                 PolicySpendCapExceeded(
-                    f"Cart total ₹{cart.total_paise / 100:.2f} exceeds available budget of ₹{available_budget / 100:.2f}.",
+                    f"Cart total Rs. {cart.total_paise / 100:.2f} exceeds available budget of Rs. {available_budget / 100:.2f}.",
                     details={
                         "requested_paise": cart.total_paise,
                         "available_paise": available_budget,
