@@ -21,6 +21,8 @@ from app.crypto import generate_es256_keypair
 from app.db import Base, engine, get_session
 from app.errors import PolicyViolation
 from app.merchant import seed_catalog
+from app.razorpay_client import RazorpayClient
+from app.reconcile import reconcile_stuck_orders
 
 
 @asynccontextmanager
@@ -39,10 +41,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             session.rollback()
         finally:
             session.close()
+
+        # 3. Self-healing reconciliation of stuck ORDER_CREATING mandates (ADR-005)
+        rec_session = get_session()
+        try:
+            rzp_client = RazorpayClient(mock_mode=True)
+            reconcile_stuck_orders(rec_session, rzp_client)
+        except Exception:
+            rec_session.rollback()
+        finally:
+            rec_session.close()
     except Exception:
         pass
 
-    # 3. Ensure local keys exist if directory present
+    # 4. Ensure local keys exist if directory present
     try:
         KEYS_DIR.mkdir(parents=True, exist_ok=True)
         for actor in ["user", "merchant", "platform"]:

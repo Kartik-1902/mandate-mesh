@@ -150,19 +150,11 @@ def authorize_mandate(
                 creates MandateRecord (status: RESERVED), and logs to audit ledger.
     On failure: Logs POLICY_REJECTED to audit ledger and fails closed with zero financial mutation.
     """
-    intent = verify_intent(intent_jwt, user_public_key_pem, db)
-    cart = verify_cart(cart_jwt, merchant_public_key_pem)
-    now = datetime.now(timezone.utc)
-
-    intent_id_str = str(intent.intent_id)
-
     is_postgres = False
-    query = db.query(IntentRegistry).filter_by(intent_id=intent_id_str)
     try:
         bind = db.get_bind()
         if bind and bind.dialect.name == "postgresql":
             is_postgres = True
-            query = query.with_for_update()
     except Exception:
         pass
 
@@ -170,6 +162,15 @@ def authorize_mandate(
         _LOCAL_POLICY_LOCK.acquire()
 
     try:
+        intent = verify_intent(intent_jwt, user_public_key_pem, db)
+        cart = verify_cart(cart_jwt, merchant_public_key_pem)
+        now = datetime.now(timezone.utc)
+
+        intent_id_str = str(intent.intent_id)
+        query = db.query(IntentRegistry).filter_by(intent_id=intent_id_str)
+        if is_postgres:
+            query = query.with_for_update()
+
         intent_row = query.first()
         if not intent_row:
             raise PolicyViolation("POLICY_INTENT_NOT_FOUND", f"Intent {intent_id_str} not found in registry.")
