@@ -70,9 +70,24 @@ class PolicyCartExpired(PolicyViolation):
         super().__init__("POLICY_CART_EXPIRED", message, http_status=409, details=details)
 
 
+class PolicyIntentSignatureInvalid(PolicyViolation):
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("POLICY_INTENT_SIGNATURE_INVALID", message, http_status=409, details=details)
+
+
 class PolicyCartSignatureInvalid(PolicyViolation):
     def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__("POLICY_CART_SIGNATURE_INVALID", message, http_status=409, details=details)
+
+
+class PolicyMandateSignatureInvalid(PolicyViolation):
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("POLICY_MANDATE_SIGNATURE_INVALID", message, http_status=409, details=details)
+
+
+class PolicyReceiptSignatureInvalid(PolicyViolation):
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("POLICY_RECEIPT_SIGNATURE_INVALID", message, http_status=409, details=details)
 
 
 class PolicyCartHashMismatch(PolicyViolation):
