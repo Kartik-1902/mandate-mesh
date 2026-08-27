@@ -31,7 +31,7 @@ from app.schemas import MerchantSignedCart
 # 0. Live Gemini LLM Calling (Dual Mode)
 # =============================================================================
 
-def call_gemini_llm(prompt: str, api_key: str, model: str = "gemini-2.0-flash") -> str | None:
+def call_gemini_llm(prompt: str, api_key: str, model: str = "gemini-3.6-flash") -> str | None:
     """Calls Gemini REST API using httpx for autonomous deliberation."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
@@ -43,7 +43,7 @@ def call_gemini_llm(prompt: str, api_key: str, model: str = "gemini-2.0-flash") 
         ]
     }
     try:
-        with httpx.Client(timeout=10.0) as client:
+        with httpx.Client(timeout=20.0) as client:
             resp = client.post(url, headers=headers, json=payload)
             if resp.status_code == 200:
                 data = resp.json()
@@ -238,12 +238,19 @@ def parse_goal_node(state: BuyerAgentState) -> dict[str, Any]:
                 pass
 
     # 2. Heuristic fallback (offline / CI)
-    budget_match = re.search(r"(?:under|below|max|budget)\s*(?:rs\.?|inr)?\s*(\d+)", goal_text, re.IGNORECASE)
-    if budget_match:
-        parsed["max_budget_paise"] = int(budget_match.group(1)) * 100
+    # Range pattern: e.g. "between 700 to 1000" or "between Rs. 700 and Rs. 1000"
+    range_match = re.search(r"between\s*(?:rs\.?|inr)?\s*(\d+)\s*(?:to|and|-)\s*(?:rs\.?|inr)?\s*(\d+)", goal_text, re.IGNORECASE)
+    if range_match:
+        parsed["max_budget_paise"] = int(range_match.group(2)) * 100
+    else:
+        # Single ceiling pattern: e.g. "under Rs. 1500", "budget 800", "within 1000"
+        budget_match = re.search(r"(?:under|below|max|budget|within|up to|upto|less than)\s*(?:rs\.?|inr)?\s*(\d+)", goal_text, re.IGNORECASE)
+        if budget_match:
+            parsed["max_budget_paise"] = int(budget_match.group(1)) * 100
 
     words = [w.strip(",.!?\"'") for w in goal_text.split()]
-    meaningful_words = [w for w in words if len(w) > 3 and w.lower() not in {"order", "want", "please", "under", "with", "from"}]
+    stop_words = {"order", "want", "please", "under", "with", "from", "between", "around", "about", "some", "like"}
+    meaningful_words = [w for w in words if len(w) > 2 and not w.isdigit() and w.lower() not in stop_words]
     parsed["keywords"] = meaningful_words
 
     if any(k.lower() in ["cake", "pastry", "bakery", "bread"] for k in words):

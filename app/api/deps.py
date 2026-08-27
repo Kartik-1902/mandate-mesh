@@ -28,6 +28,13 @@ def get_db() -> Generator[Session, None, None]:
         session.close()
 
 
+def get_user_private_key_pem() -> bytes:
+    priv_path = KEYS_DIR / "user_private.pem"
+    if priv_path.exists():
+        return load_private_key_pem(priv_path)
+    return _FALLBACK_KEYS["user"][0]
+
+
 def get_user_public_key_pem() -> bytes:
     pub_path = KEYS_DIR / "user_public.pem"
     if pub_path.exists():

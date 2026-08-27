@@ -45,3 +45,8 @@ keys/*.pem
 # Database
 *.sqlite3
 *.db
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/

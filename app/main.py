@@ -11,7 +11,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.agent_routes import router as agent_router
 from app.api.checkout import router as checkout_router
+from app.api.demo_routes import router as demo_router
 from app.api.deps import KEYS_DIR
 from app.api.intent import router as intent_router
 from app.api.ledger_routes import router as ledger_router
@@ -108,6 +110,8 @@ app.include_router(checkout_router)
 app.include_router(mandates_router)
 app.include_router(webhooks_router)
 app.include_router(ledger_router)
+app.include_router(agent_router)
+app.include_router(demo_router)
 
 
 @app.get("/healthz", tags=["System"])
