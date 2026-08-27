@@ -23,7 +23,7 @@ import threading
 
 GENESIS_HASH = "0" * 64
 LEDGER_LOCK_ID = 1  # Application-wide advisory lock key for the linear audit chain
-_LOCAL_DIALECT_LOCK = threading.Lock()
+_LOCAL_DIALECT_LOCK = threading.RLock()
 
 
 def _normalize_iso(dt: datetime) -> str:

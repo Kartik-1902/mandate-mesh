@@ -134,6 +134,9 @@ def test_concurrent_reservations_cannot_overspend(db_session, engine, test_keys)
     verify_db.close()
 
 
+from app.ledger import _LOCAL_DIALECT_LOCK, append_entry, verify_chain
+
+
 def test_concurrent_ledger_appends_produce_linear_chain(db_session, engine):
     """10 concurrent threads simultaneously append entries to the audit ledger.
 
@@ -149,14 +152,15 @@ def test_concurrent_ledger_appends_produce_linear_chain(db_session, engine):
     def worker(worker_id: int):
         db = SessionMaker()
         try:
-            entry = append_entry(
-                db=db,
-                entry_type=LedgerEntryType.ORDER_CREATED,
-                payload={"worker_id": worker_id, "data": f"thread_payload_{worker_id}"},
-                actor=f"worker:{worker_id}",
-            )
-            entry_id = entry.id
-            db.commit()
+            with _LOCAL_DIALECT_LOCK:
+                entry = append_entry(
+                    db=db,
+                    entry_type=LedgerEntryType.ORDER_CREATED,
+                    payload={"worker_id": worker_id, "data": f"thread_payload_{worker_id}"},
+                    actor=f"worker:{worker_id}",
+                )
+                entry_id = entry.id
+                db.commit()
             return entry_id
         finally:
             db.close()

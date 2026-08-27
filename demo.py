@@ -10,6 +10,7 @@ Usage:
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -17,6 +18,7 @@ from uuid import uuid4
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+from app.agent import run_buyer_agent
 from app.api.deps import KEYS_DIR
 from app.crypto import (
     compute_cart_hash,
@@ -320,15 +322,164 @@ def run_attack(attack_num: int):
     db.close()
 
 
+def run_agent(goal: str):
+    """Executes natural language goal via LangGraph Buyer Agent and full payment rail."""
+    print("=" * 70)
+    print("  MANDATE MESH — BUYER AGENT AUTONOMOUS PURCHASE DEMO")
+    print(f"  Goal: '{goal}'")
+    print("=" * 70)
+
+    db = get_session()
+    keys = ensure_keys_and_db(db)
+
+    # 1. User Intent Credential (budget extracted from goal or default Rs. 1,500)
+    parsed_budget_match = re.search(r"(?:under|below|max|budget)\s*(?:rs\.?|inr)?\s*(\d+)", goal, re.IGNORECASE)
+    initial_spend_cap = int(parsed_budget_match.group(1)) * 100 if parsed_budget_match else 150000
+
+    print("\n[Step 1: User Signs Intent Credential (ES256)]")
+    now = datetime.now(timezone.utc)
+    intent = UserIntentCredential(
+        user_id="user_alice_agent_01",
+        spend_cap_paise=initial_spend_cap,
+        allowed_categories=["bakery"],
+        allowed_merchant_ids=["merchant_cakehouse_01"],
+        nonce=uuid4().hex,
+        not_before=now - timedelta(minutes=1),
+        expires_at=now + timedelta(hours=1),
+    )
+    intent_jwt = issue_intent_jwt(intent, keys["user_priv"])
+    verify_intent(intent_jwt, keys["user_pub"], db)
+    db.commit()
+    print(f"  Intent ID:   {intent.intent_id}")
+    print(f"  Spend Cap:   Rs. {initial_spend_cap / 100:.2f} ({initial_spend_cap} paise)")
+    print("  Categories:  ['bakery']")
+
+    # 2. Buyer Agent Execution (LangGraph)
+    print("\n[Step 2: Buyer Agent Deliberation (LangGraph)]")
+    agent_state = run_buyer_agent(
+        goal=goal,
+        db=db,
+        merchant_private_key_pem=keys["merchant_priv"],
+    )
+
+    if agent_state.get("error"):
+        print(f"  [ERROR] Agent failed: {agent_state['error']}")
+        db.close()
+        return
+
+    cart = agent_state["signed_cart"]
+    cart_jwt = agent_state["cart_jwt"]
+
+    print(f"  Node 1 (parse_goal):      Parsed goal -> category='{agent_state['parsed_intent'].get('category')}'")
+    print(f"  Node 2 (browse_catalog):  Found {len(agent_state['catalog_candidates'])} candidate catalog items")
+    print(f"  Node 3 (propose_cart):    Proposed {len(cart.line_items)} line item(s):")
+    for li in cart.line_items:
+        print(f"    • SKU: {li.sku:<16} | Name: {li.name:<25} | Qty: {li.quantity} | Unit: Rs. {li.unit_price_paise/100:.2f} | Line Total: Rs. {li.line_total_paise/100:.2f}")
+
+    if agent_state.get("llm_reasoning"):
+        print(f"  [Gemini LLM Reasoning]:   \"{agent_state['llm_reasoning']}\"")
+    print("  [Structural Boundary]:    Agent tool submitted ONLY {sku, quantity} list -- NO price parameter.")
+    print(f"  Authoritative Subtotal:   Rs. {cart.subtotal_paise / 100:.2f}")
+    print(f"  Merchant Signed Total:    Rs. {cart.total_paise / 100:.2f} ({cart.total_paise} paise)")
+
+    # Handle Human-in-the-Loop Budget Escalation
+    if agent_state.get("status") == "REQUIRES_USER_APPROVAL":
+        esc = agent_state["escalation_details"]
+        print("\n[Human-in-the-Loop] Budget Escalation Triggered!")
+        print(f"  Notice:         {esc['message']}")
+        print(f"  Current Cap:    Rs. {esc['current_budget_paise'] / 100:.2f}")
+        print(f"  Required Total: Rs. {esc['suggested_total_paise'] / 100:.2f} (+Rs. {esc['overspend_paise'] / 100:.2f})")
+        print(f"  [User Biometric Approval: User approves Rs. {esc['suggested_total_paise'] / 100:.2f} on device]")
+
+        # User mints and signs a new Intent Credential with the escalated spend cap
+        now = datetime.now(timezone.utc)
+        elevated_intent = UserIntentCredential(
+            user_id="user_alice_agent_01",
+            spend_cap_paise=esc["suggested_total_paise"],
+            allowed_categories=["bakery"],
+            allowed_merchant_ids=["merchant_cakehouse_01"],
+            nonce=uuid4().hex,
+            not_before=now - timedelta(minutes=1),
+            expires_at=now + timedelta(hours=1),
+        )
+        intent_jwt = issue_intent_jwt(elevated_intent, keys["user_priv"])
+        verify_intent(intent_jwt, keys["user_pub"], db)
+        db.commit()
+        print(f"  New Intent ID:  {elevated_intent.intent_id} (Approved Cap: Rs. {esc['suggested_total_paise'] / 100:.2f})")
+        intent_jwt = intent_jwt
+
+    # 3. Policy Rail Authorization
+    print("\n[Step 3: Deterministic Policy Rail Authorization]")
+    idemp_key = f"tx_agent_{uuid4().hex[:12]}"
+    mandate, mandate_jwt, record = authorize_mandate(
+        intent_jwt=intent_jwt,
+        cart_jwt=cart_jwt,
+        idempotency_key=idemp_key,
+        user_public_key_pem=keys["user_pub"],
+        merchant_public_key_pem=keys["merchant_pub"],
+        platform_private_key_pem=keys["platform_priv"],
+        db=db,
+    )
+    print(f"  [OK] Mandate Authorized: {mandate.mandate_id}")
+    print(f"  Reserved in Registry:    Rs. {record.reserved_paise / 100:.2f}")
+
+    # 4. Razorpay Order Creation
+    print("\n[Step 4: Razorpay Order Creation]")
+    rzp = RazorpayClient(mock_mode=True)
+    rzp_order = rzp.create_order(
+        amount_paise=record.authorized_amount_paise,
+        receipt=record.order_idempotency_key,
+    )
+    record.razorpay_order_id = rzp_order["id"]
+    record.status = MandateStatus.ORDER_CREATED
+    db.commit()
+    print(f"  Razorpay Order ID: {rzp_order['id']}")
+    print(f"  Receipt Reference: {record.order_idempotency_key}")
+
+    # 5. Webhook Capture Simulation
+    print("\n[Step 5: Razorpay Webhook Capture & Receipt Issuance]")
+    raw_webhook, signature = simulate_payment_captured_webhook(
+        razorpay_order_id=rzp_order["id"],
+        amount_paise=record.authorized_amount_paise,
+        webhook_secret="whsec_demo_secret",
+    )
+    wh_result = process_payment_webhook(
+        raw_body=raw_webhook,
+        signature=signature,
+        db=db,
+        webhook_secret="whsec_demo_secret",
+        platform_private_key_pem=keys["platform_priv"],
+    )
+    print(f"  Webhook Status:    {wh_result['status']}")
+    print(f"  Payment Receipt:   {wh_result['receipt_id']}")
+
+    # 6. Verify Payment Receipt
+    receipt = verify_receipt_jwt(wh_result["receipt_jwt"], keys["platform_pub"])
+    print(f"  Verified Receipt:  Captured Rs. {receipt.amount_captured_paise / 100:.2f} at {receipt.captured_at.isoformat()}")
+
+    # 7. Audit Ledger Verification
+    print("\n[Step 6: Forensic Audit Ledger Verification]")
+    is_valid, broken_id = verify_chain(db)
+    print(f"  Hash Chain Status: {'VALID (Linear, zero tamper)' if is_valid else f'CORRUPTED at {broken_id}'}")
+
+    print("\n" + "=" * 70)
+    print("  [SUCCESS] Buyer agent goal fulfilled & payment completed deterministically!")
+    print("=" * 70)
+    db.close()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Mandate Mesh CLI Demo")
     parser.add_argument("--happy-path", action="store_true", help="Execute complete happy path payment flow")
     parser.add_argument("--attack", type=int, choices=[1, 2, 3, 4], help="Execute specific attack / failure mode (1-4)")
+    parser.add_argument("--agent", type=str, help="Run autonomous buyer agent with a natural language goal")
     args = parser.parse_args()
 
     if args.happy_path:
         run_happy_path()
     elif args.attack:
         run_attack(args.attack)
+    elif args.agent:
+        run_agent(args.agent)
     else:
         parser.print_help()

@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     PLATFORM_KEY_ID: str = "platform:key-1"
 
+    # Gemini / Google LLM Configuration
+    GEMINI_API_KEY: str | None = None
+    GOOGLE_API_KEY: str | None = None
+
     # Razorpay Gateway
     RAZORPAY_KEY_ID: str = "rzp_test_placeholder"
     RAZORPAY_KEY_SECRET: str = "rzp_secret_placeholder"
