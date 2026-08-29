@@ -34,12 +34,19 @@ from app.schemas import UserIntentCredential
 from app.webhooks import process_payment_webhook
 
 
+from app.merchant_keys import register_test_merchant_key
+
+
 @pytest.fixture
 def test_keys():
+    user_keys = generate_es256_keypair()
+    merchant_keys = generate_es256_keypair()
+    platform_keys = generate_es256_keypair()
+    register_test_merchant_key("merchant_cakehouse_01", merchant_keys[0], merchant_keys[1])
     return {
-        "user": generate_es256_keypair(),
-        "merchant": generate_es256_keypair(),
-        "platform": generate_es256_keypair(),
+        "user": user_keys,
+        "merchant": merchant_keys,
+        "platform": platform_keys,
     }
 
 

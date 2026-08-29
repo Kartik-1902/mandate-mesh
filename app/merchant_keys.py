@@ -67,25 +67,26 @@ def get_merchant_private_key(merchant_id: str) -> bytes:
     if not merchant_id:
         raise MerchantKeyNotFound(merchant_id, "Merchant ID cannot be empty.")
 
-    # 1. Check keys/merchants/<merchant_id>/private.pem
+    # 1. Check explicit test registry override
+    if merchant_id in _TEST_FALLBACK_KEYS:
+        return _TEST_FALLBACK_KEYS[merchant_id][0]
+
+    # 2. Check keys/merchants/<merchant_id>/private.pem
     disk_path = MERCHANT_KEYS_DIR / merchant_id / "private.pem"
     if disk_path.exists() and disk_path.is_file():
         return load_private_key_pem(disk_path)
 
-    # 1b. Legacy fallback for CakeHouse (keys/merchant_private.pem)
+    # 2b. Legacy fallback for CakeHouse (keys/merchant_private.pem)
     if merchant_id == "merchant_cakehouse_01":
         legacy_path = KEYS_BASE / "merchant_private.pem"
         if legacy_path.exists() and legacy_path.is_file():
             return load_private_key_pem(legacy_path)
 
-    # 2. Check explicit test registry or known demo fallback
-    if merchant_id in _TEST_FALLBACK_KEYS:
-        return _TEST_FALLBACK_KEYS[merchant_id][0]
-
+    # 3. Known demo merchant fallback
     if merchant_id in KNOWN_DEMO_MERCHANTS:
         return _get_or_init_test_fallback(merchant_id)[0]
 
-    # 3. Fail closed: unknown merchant ID
+    # 4. Fail closed: unknown merchant ID
     raise MerchantKeyNotFound(merchant_id)
 
 
@@ -104,25 +105,26 @@ def get_merchant_public_key(merchant_id: str) -> bytes:
     if not merchant_id:
         raise MerchantKeyNotFound(merchant_id, "Merchant ID cannot be empty.")
 
-    # 1. Check keys/merchants/<merchant_id>/public.pem
+    # 1. Check explicit test registry override
+    if merchant_id in _TEST_FALLBACK_KEYS:
+        return _TEST_FALLBACK_KEYS[merchant_id][1]
+
+    # 2. Check keys/merchants/<merchant_id>/public.pem
     disk_path = MERCHANT_KEYS_DIR / merchant_id / "public.pem"
     if disk_path.exists() and disk_path.is_file():
         return load_public_key_pem(disk_path)
 
-    # 1b. Legacy fallback for CakeHouse (keys/merchant_public.pem)
+    # 2b. Legacy fallback for CakeHouse (keys/merchant_public.pem)
     if merchant_id == "merchant_cakehouse_01":
         legacy_path = KEYS_BASE / "merchant_public.pem"
         if legacy_path.exists() and legacy_path.is_file():
             return load_public_key_pem(legacy_path)
 
-    # 2. Check explicit test registry or known demo fallback
-    if merchant_id in _TEST_FALLBACK_KEYS:
-        return _TEST_FALLBACK_KEYS[merchant_id][1]
-
+    # 3. Known demo merchant fallback
     if merchant_id in KNOWN_DEMO_MERCHANTS:
         return _get_or_init_test_fallback(merchant_id)[1]
 
-    # 3. Fail closed: unknown merchant ID
+    # 4. Fail closed: unknown merchant ID
     raise MerchantKeyNotFound(merchant_id)
 
 
