@@ -378,6 +378,24 @@ def verify_cart_jwt(
     return cart
 
 
+def extract_unverified_cart_merchant_id(token: str) -> str:
+    """Extracts merchant_id from cart JWT claims without cryptographic signature verification.
+
+    Used strictly by API ingress layers to look up the authoritative merchant public key
+    from the trusted key registry prior to full cryptographic verification.
+    """
+    try:
+        claims = jwt.decode(token, options={"verify_signature": False})
+    except Exception as e:
+        raise PolicyCartSignatureInvalid(f"Failed to parse unverified cart JWT claims: {e}") from e
+
+    merchant_id = claims.get("merchant_id")
+    if not merchant_id or not isinstance(merchant_id, str):
+        raise PolicyCartSignatureInvalid("Unverified cart JWT missing valid 'merchant_id' claim.")
+
+    return merchant_id
+
+
 # =============================================================================
 # 5. PaymentMandate JWT Issuance & Verification (Platform-Signed)
 # =============================================================================

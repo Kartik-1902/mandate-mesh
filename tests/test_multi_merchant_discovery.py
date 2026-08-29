@@ -227,3 +227,48 @@ def test_deliberate_api_does_not_leak_raw_jwts_in_routing_decision(client, db_se
     # Assert no JWT fields inside routing_decision
     assert_no_jwt_leaks(routing_decision_json, "routing_decision")
     assert_no_jwt_leaks(data["candidate_quotes"], "candidate_quotes")
+
+
+def test_deliberate_api_end_to_end_jit_fallback_to_runner_up(client, db_session, monkeypatch):
+    """Milestone M6: If winner fails JIT revalidation during deliberation, endpoint automatically falls back to runner-up."""
+    from app import quote_router
+
+    original_revalidate = quote_router.revalidate_winner
+
+    # Simulate Sweet Delight (cheapest @ ₹890) failing JIT revalidation
+    def mock_revalidate(winner_quote, intent, db=None, now=None):
+        if winner_quote.merchant_id == "merchant_sweetdelight_02":
+            return False, "Quote expired during JIT pre-authorization check"
+        return original_revalidate(winner_quote, intent, db=db, now=now)
+
+    monkeypatch.setattr(quote_router, "revalidate_winner", mock_revalidate)
+
+    payload = {
+        "goal": "Order a 1kg chocolate truffle cake",
+        "spend_cap_paise": 150000,
+        "allowed_merchant_ids": [
+            "merchant_cakehouse_01",
+            "merchant_sweetdelight_02",
+            "merchant_artisan_03",
+        ],
+    }
+
+    response = client.post("/api/v1/agent/deliberate", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["status"] == "COMPLETED"
+    # Final winner after fallback must be CakeHouse (₹940 runner up)
+    assert data["routing_decision"]["winner_merchant_id"] == "merchant_cakehouse_01"
+    assert data["mandate"] is not None
+    assert data["mandate"]["status"] == "ORDER_CREATED"
+    assert data["mandate"]["authorized_amount_paise"] == 94000
+    assert data["razorpay_order_id"] is not None
+
+    # Check candidate quotes projection reflects the fallback winner
+    cake_quote = next(q for q in data["candidate_quotes"] if q["merchant_id"] == "merchant_cakehouse_01")
+    assert cake_quote["is_winner"] is True
+    assert cake_quote["total_paise"] == 94000
+
+    sweet_quote = next(q for q in data["candidate_quotes"] if q["merchant_id"] == "merchant_sweetdelight_02")
+    assert sweet_quote["is_winner"] is False

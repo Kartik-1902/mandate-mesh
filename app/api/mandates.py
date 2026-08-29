@@ -1,18 +1,19 @@
 """Policy Rail Mandate Authorization & Reconciliation API."""
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
     get_db,
-    get_merchant_public_key_pem,
     get_platform_private_key_pem,
     get_razorpay_client,
     get_user_public_key_pem,
 )
+from app.crypto import extract_unverified_cart_merchant_id
 from app.errors import PolicyViolation
 from app.ledger import append_entry
+from app.merchant_keys import get_merchant_public_key, MerchantKeyNotFound
 from app.models import LedgerEntryType, MandateRecord, MandateStatus
 from app.policy import authorize_mandate
 from app.razorpay_client import RazorpayClient
@@ -49,17 +50,32 @@ def authorize_payment_mandate(
     db: Session = Depends(get_db),
     razorpay_client: RazorpayClient = Depends(get_razorpay_client),
     user_pub: bytes = Depends(get_user_public_key_pem),
-    merchant_pub: bytes = Depends(get_merchant_public_key_pem),
     platform_priv: bytes = Depends(get_platform_private_key_pem),
 ) -> AuthorizeMandateResponse:
     """Evaluates deterministic bounds, reserves spend cap, and creates Razorpay order."""
+    # 0. Dynamically resolve trusted merchant public key from unverified cart header/claims
+    unverified_mid = "unknown"
+    try:
+        unverified_mid = extract_unverified_cart_merchant_id(req.cart_jwt)
+        resolved_merchant_pub = get_merchant_public_key(unverified_mid)
+    except MerchantKeyNotFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown or untrusted merchant '{unverified_mid}': {e}",
+        )
+    except PolicyViolation as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid cart JWT: {e}",
+        )
+
     # 1. Deterministic Policy Evaluation & Spend Reservation (State: RESERVED)
     mandate, mandate_jwt, record = authorize_mandate(
         intent_jwt=req.intent_jwt,
         cart_jwt=req.cart_jwt,
         idempotency_key=req.idempotency_key,
         user_public_key_pem=user_pub,
-        merchant_public_key_pem=merchant_pub,
+        merchant_public_key_pem=resolved_merchant_pub,
         platform_private_key_pem=platform_priv,
         db=db,
     )

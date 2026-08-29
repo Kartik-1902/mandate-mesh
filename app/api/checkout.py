@@ -1,12 +1,13 @@
 """Merchant Catalog & Cart Signing API."""
 
 from typing import Any
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_merchant_private_key_pem
+from app.api.deps import get_db
 from app.merchant import seed_catalog, sign_cart
+from app.merchant_keys import get_merchant_private_key, MerchantKeyNotFound
 from app.models import CatalogItem
 from app.schemas import MerchantSignedCart
 
@@ -57,15 +58,22 @@ def get_merchant_catalog(
 def checkout_sign_cart(
     req: SignCartRequest,
     db: Session = Depends(get_db),
-    merchant_priv: bytes = Depends(get_merchant_private_key_pem),
 ) -> SignCartResponse:
     """Authoritatively prices requested SKUs from database catalog and issues signed MerchantSignedCart JWT."""
+    try:
+        priv_pem = get_merchant_private_key(req.merchant_id)
+    except MerchantKeyNotFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown merchant ID '{req.merchant_id}': {e}",
+        )
+
     line_items_dict = [{"sku": li.sku, "quantity": li.quantity} for li in req.line_items]
 
     cart_model, cart_jwt = sign_cart(
         merchant_id=req.merchant_id,
         line_items_req=line_items_dict,
-        merchant_private_key_pem=merchant_priv,
+        merchant_private_key_pem=priv_pem,
         db=db,
         tax_paise=req.tax_paise,
     )

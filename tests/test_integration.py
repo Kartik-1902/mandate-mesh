@@ -19,6 +19,7 @@ from app.api.deps import (
 from app.crypto import generate_es256_keypair, issue_intent_jwt, verify_receipt_jwt
 from app.main import app
 from app.merchant import seed_catalog
+from app.merchant_keys import clear_test_merchant_keys, register_test_merchant_key
 from app.models import MandateRecord, MandateStatus
 from app.razorpay_client import RazorpayClient, simulate_payment_captured_webhook
 from app.schemas import UserIntentCredential
@@ -44,6 +45,8 @@ def client(db_session, test_keys, mock_rzp):
     seed_catalog(db_session)
     db_session.commit()
 
+    register_test_merchant_key("merchant_cakehouse_01", test_keys["merchant"][0], test_keys["merchant"][1])
+
     app.dependency_overrides[get_db] = lambda: db_session
     app.dependency_overrides[get_user_public_key_pem] = lambda: test_keys["user"][1]
     app.dependency_overrides[get_merchant_public_key_pem] = lambda: test_keys["merchant"][1]
@@ -57,6 +60,7 @@ def client(db_session, test_keys, mock_rzp):
         yield test_client
 
     app.dependency_overrides.clear()
+    clear_test_merchant_keys()
 
 
 def build_user_intent_jwt(test_keys, spend_cap_paise=150000, allowed_categories=None, allowed_merchants=None):
@@ -370,4 +374,89 @@ def test_ledger_entries_list_endpoint(client, test_keys):
     entries = res.json()
     assert isinstance(entries, list)
     assert len(entries) >= 1
+
+
+def test_authorize_mandate_multi_merchant_dynamic_key_resolution(client, test_keys, db_session):
+    """Milestone M6: POST /api/v1/mandate/authorize dynamically resolves key for non-default merchant."""
+    now = datetime.now(timezone.utc)
+    intent = UserIntentCredential(
+        user_id="user_m6_test",
+        spend_cap_paise=150000,
+        currency="INR",
+        allowed_categories=["bakery"],
+        allowed_merchant_ids=["merchant_sweetdelight_02"],
+        max_transactions=1,
+        nonce=uuid4().hex,
+        not_before=now - timedelta(minutes=1),
+        expires_at=now + timedelta(hours=1),
+    )
+    intent_jwt = issue_intent_jwt(intent, test_keys["user"][0])
+
+    # Sign cart for Sweet Delight (₹890)
+    res_cart = client.post(
+        "/checkout/sign-cart",
+        json={
+            "merchant_id": "merchant_sweetdelight_02",
+            "line_items": [{"sku": "CAKE-CHOC-001", "quantity": 1}],
+        },
+    )
+    assert res_cart.status_code == 200
+    cart_jwt = res_cart.json()["cart_jwt"]
+
+    # Authorize mandate
+    res_mandate = client.post(
+        "/api/v1/mandate/authorize",
+        json={
+            "intent_jwt": intent_jwt,
+            "cart_jwt": cart_jwt,
+            "idempotency_key": f"tx_m6_{uuid4().hex}",
+        },
+    )
+    assert res_mandate.status_code == 201
+    data = res_mandate.json()
+    assert data["status"] == "ORDER_CREATED"
+    assert data["mandate"]["merchant_id"] == "merchant_sweetdelight_02"
+    assert data["mandate"]["authorized_amount_paise"] == 89000
+
+
+def test_authorize_mandate_unregistered_merchant_rejected(client, test_keys):
+    """Milestone M6: Mandate authorization for unregistered merchant ID fails closed (HTTP 400)."""
+    now = datetime.now(timezone.utc)
+    intent = UserIntentCredential(
+        user_id="user_m6_test",
+        spend_cap_paise=150000,
+        currency="INR",
+        allowed_categories=["bakery"],
+        allowed_merchant_ids=["merchant_rogue_99"],
+        max_transactions=1,
+        nonce=uuid4().hex,
+        not_before=now - timedelta(minutes=1),
+        expires_at=now + timedelta(hours=1),
+    )
+    intent_jwt = issue_intent_jwt(intent, test_keys["user"][0])
+
+    # Craft cart JWT signed with rogue key
+    from app.schemas import MerchantSignedCart, CartLineItem
+    from app.crypto import compute_cart_hash, issue_cart_jwt
+    rogue_priv, _ = generate_es256_keypair()
+    cart = MerchantSignedCart(
+        merchant_id="merchant_rogue_99",
+        line_items=[CartLineItem(sku="SKU-1", name="Cake", category="bakery", unit_price_paise=50000, quantity=1)],
+        cart_hash="dummy",
+        issued_at=now,
+        expires_at=now + timedelta(minutes=5),
+    )
+    cart.cart_hash = compute_cart_hash(cart)
+    cart_jwt = issue_cart_jwt(cart, rogue_priv)
+
+    res_mandate = client.post(
+        "/api/v1/mandate/authorize",
+        json={
+            "intent_jwt": intent_jwt,
+            "cart_jwt": cart_jwt,
+            "idempotency_key": f"tx_rogue_{uuid4().hex}",
+        },
+    )
+    assert res_mandate.status_code == 400
+    assert "Unknown or untrusted merchant" in res_mandate.json()["detail"]
 

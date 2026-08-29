@@ -20,10 +20,12 @@ from app.crypto import issue_intent_jwt
 from app.merchant_keys import get_merchant_public_key, list_known_merchant_ids
 from app.models import MandateStatus
 from app.policy import authorize_mandate, verify_intent
+from app.quote_router import route_with_fallback
 from app.razorpay_client import RazorpayClient
 from app.schemas import UserIntentCredential
 from app.schemas_routing import (
     CandidateQuoteResponse,
+    OptimizationPolicy,
     RoutingDecision,
     RoutingDecisionResponse,
 )
@@ -116,9 +118,15 @@ def deliberate_goal(
     )
 
     status = res.get("status", "COMPLETED")
-    routing_decision: RoutingDecision | None = res.get("routing_decision")
     all_quotes = res.get("all_quotes", [])
-    winner_quote = routing_decision.winner_quote if routing_decision else None
+
+    # Milestone M6: Automated Just-In-Time Fallback Revalidation across candidate quotes pool
+    routing_decision, winner_quote = route_with_fallback(
+        quotes=all_quotes,
+        intent=intent,
+        policy=OptimizationPolicy.LOWEST_TOTAL_PRICE,
+        db=db,
+    )
     winner_total = winner_quote.total_paise if winner_quote else None
 
     # Safe external projection of all candidate quotes (omitting raw JWTs per ADR-002 / Patch 1)
