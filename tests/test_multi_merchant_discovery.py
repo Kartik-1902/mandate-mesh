@@ -272,3 +272,64 @@ def test_deliberate_api_end_to_end_jit_fallback_to_runner_up(client, db_session,
 
     sweet_quote = next(q for q in data["candidate_quotes"] if q["merchant_id"] == "merchant_sweetdelight_02")
     assert sweet_quote["is_winner"] is False
+
+
+def test_deliberate_api_empty_allowed_merchants_rejected(client):
+    """Item 10: allowed_merchant_ids=[] is rejected with HTTP 400."""
+    payload = {
+        "goal": "Order a 1kg chocolate truffle cake",
+        "allowed_merchant_ids": [],
+    }
+    response = client.post("/api/v1/agent/deliberate", json=payload)
+    assert response.status_code == 400
+    assert "allowed_merchant_ids cannot be empty" in response.json()["detail"]
+
+
+def test_deliberate_api_merchant_identity_propagation(client, db_session):
+    """Item 7: End-to-end merchant identity propagation across quote, cart, mandate, and DB record."""
+    from app.models import MandateRecord
+    payload = {
+        "goal": "Order a 1kg chocolate truffle cake",
+        "allowed_merchant_ids": ["merchant_sweetdelight_02"],
+    }
+    response = client.post("/api/v1/agent/deliberate", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    winner_mid = data["routing_decision"]["winner_merchant_id"]
+    assert winner_mid == "merchant_sweetdelight_02"
+    assert data["signed_cart"]["merchant_id"] == "merchant_sweetdelight_02"
+
+    mandate_id = data["mandate"]["mandate_id"]
+    db_record = db_session.query(MandateRecord).filter_by(mandate_id=mandate_id).first()
+    assert db_record is not None
+    assert db_record.merchant_id == "merchant_sweetdelight_02"
+
+
+def test_deliberate_api_idempotent_duplicate_request_id(client, db_session):
+    """Item 9: Submitting the same request_id twice does not create duplicate active mandates or fail."""
+    from app.models import MandateRecord
+    req_id = str(uuid4())
+    payload = {
+        "request_id": req_id,
+        "goal": "Order a 1kg chocolate truffle cake",
+        "allowed_merchant_ids": ["merchant_cakehouse_01"],
+    }
+
+    # First request
+    res1 = client.post("/api/v1/agent/deliberate", json=payload)
+    assert res1.status_code == 200
+    mandate_id_1 = res1.json()["mandate"]["mandate_id"]
+
+    # Second request with identical request_id
+    res2 = client.post("/api/v1/agent/deliberate", json=payload)
+    assert res2.status_code == 200
+    # Returns the existing mandate idempotently
+    mandate_id_2 = res2.json()["mandate"]["mandate_id"]
+    assert mandate_id_1 == mandate_id_2
+
+    # Exactly one record in the database for this transaction
+    from uuid import UUID
+    tx_key = f"tx_agent_{UUID(req_id).hex}"
+    records = db_session.query(MandateRecord).filter_by(idempotency_key=tx_key).all()
+    assert len(records) == 1

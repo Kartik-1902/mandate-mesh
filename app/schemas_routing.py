@@ -129,6 +129,9 @@ class RoutingDecision(BaseModel):
     excluded_quotes: list[MerchantQuote] = Field(default_factory=list)
     optimization_objective: OptimizationPolicy = OptimizationPolicy.LOWEST_TOTAL_PRICE
     price_savings_paise: int | None = None
+    fallback_applied: bool = False
+    fallback_from_merchant: str | None = None
+    fallback_reason: str | None = None
     deliberation_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     decision_rationale: str = ""
 
@@ -144,6 +147,9 @@ class RoutingDecisionResponse(BaseModel):
     winner_total_paise: int | None = None
     optimization_objective: OptimizationPolicy = OptimizationPolicy.LOWEST_TOTAL_PRICE
     price_savings_paise: int | None = None
+    fallback_applied: bool = False
+    fallback_from_merchant: str | None = None
+    fallback_reason: str | None = None
     deliberation_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     decision_rationale: str = ""
     candidate_quotes: list[CandidateQuoteResponse] = Field(default_factory=list)
@@ -164,6 +170,9 @@ class RoutingDecisionResponse(BaseModel):
             winner_total_paise=winner_total,
             optimization_objective=decision.optimization_objective,
             price_savings_paise=decision.price_savings_paise,
+            fallback_applied=decision.fallback_applied,
+            fallback_from_merchant=decision.fallback_from_merchant,
+            fallback_reason=decision.fallback_reason,
             deliberation_timestamp=decision.deliberation_timestamp,
             decision_rationale=decision.decision_rationale,
             candidate_quotes=candidate_projections,

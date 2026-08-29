@@ -231,6 +231,13 @@ def route(
     now: datetime | None = None,
 ) -> RoutingDecision:
     """Deterministically ranks verified quotes according to optimization policy and selects winner."""
+    # Scope Remediation: Only LOWEST_TOTAL_PRICE is active in the current sprint
+    if policy != OptimizationPolicy.LOWEST_TOTAL_PRICE:
+        raise NotImplementedError(
+            f"Optimization policy '{policy.value}' is reserved for future extensions and not active in the current sprint. "
+            f"Only '{OptimizationPolicy.LOWEST_TOTAL_PRICE.value}' is supported."
+        )
+
     current_time = now or datetime.now(timezone.utc)
     classified_quotes = verify_and_classify_quotes(quotes, intent, db=db, now=current_time)
 
@@ -241,45 +248,13 @@ def route(
     rationale = ""
 
     if eligible_quotes:
-        if policy == OptimizationPolicy.PREFER_MERCHANT and preferred_merchant_id:
-            matching_pref = [q for q in eligible_quotes if q.merchant_id == preferred_merchant_id]
-            if matching_pref:
-                winner_quote = min(matching_pref, key=lambda q: (q.total_paise, q.merchant_id))
-                rationale = (
-                    f"Selected preferred merchant {winner_quote.merchant_id} at ₹{winner_quote.total_paise / 100:.2f} "
-                    f"(policy: PREFER_MERCHANT)."
-                )
-            else:
-                # Fallback to lowest price if preferred merchant is not eligible
-                winner_quote = min(eligible_quotes, key=lambda q: (q.total_paise, q.merchant_id))
-                rationale = (
-                    f"Preferred merchant '{preferred_merchant_id}' ineligible or unavailable. "
-                    f"Fell back to lowest price candidate {winner_quote.merchant_id} at ₹{winner_quote.total_paise / 100:.2f}."
-                )
-        elif policy == OptimizationPolicy.MAX_ITEM_AVAILABILITY:
-            # Sort primarily by number of fulfilled line items (descending), secondarily by price (ascending)
-            sorted_by_avail = sorted(
-                eligible_quotes,
-                key=lambda q: (
-                    -len(q.signed_cart.line_items) if q.signed_cart else 0,
-                    q.total_paise,
-                    q.merchant_id,
-                ),
-            )
-            winner_quote = sorted_by_avail[0]
-            item_count = len(winner_quote.signed_cart.line_items) if winner_quote.signed_cart else 0
-            rationale = (
-                f"Selected {winner_quote.merchant_id} fulfilling {item_count} items "
-                f"at ₹{winner_quote.total_paise / 100:.2f} (policy: MAX_ITEM_AVAILABILITY)."
-            )
-        else:  # LOWEST_TOTAL_PRICE (default)
-            winner_quote = min(eligible_quotes, key=lambda q: (q.total_paise, q.merchant_id))
-            rationale = (
-                f"Selected {winner_quote.merchant_id} at ₹{winner_quote.total_paise / 100:.2f} "
-                f"(lowest verified eligible quote)."
-            )
+        winner_quote = min(eligible_quotes, key=lambda q: (q.total_paise, q.merchant_id))
+        rationale = (
+            f"Selected {winner_quote.merchant_id} at ₹{winner_quote.total_paise / 100:.2f} "
+            f"(lowest verified eligible quote)."
+        )
 
-    # Bug 6: Price savings is relative to the second-lowest (runner-up) quote
+    # Price savings is relative to the second-lowest (runner-up) quote
     price_savings_paise: int | None = None
     if winner_quote and len(eligible_quotes) > 1:
         sorted_by_price = sorted(eligible_quotes, key=lambda q: (q.total_paise, q.merchant_id))
@@ -324,28 +299,53 @@ def route_with_fallback(
     preferred_merchant_id: str | None = None,
     db: Session | None = None,
     now: datetime | None = None,
+    now_factory: Any = None,
 ) -> tuple[RoutingDecision, MerchantQuote | None]:
-    """Routes quotes and validates winner; if winner fails JIT revalidation, falls back to runner-up."""
-    current_time = now or datetime.now(timezone.utc)
+    """Routes quotes and validates winner; if winner fails JIT revalidation, falls back to runner-up.
+
+    Uses fresh current timestamps on each candidate evaluation round to ensure true JIT revalidation.
+    """
+    get_time = now_factory or (lambda: now or datetime.now(timezone.utc))
     remaining_pool = list(quotes)
 
+    fallback_applied = False
+    fallback_from_merchant: str | None = None
+    fallback_reason: str | None = None
+
     while remaining_pool:
+        round_time = get_time()
         decision = route(
             quotes=remaining_pool,
             intent=intent,
             policy=policy,
             preferred_merchant_id=preferred_merchant_id,
             db=db,
-            now=current_time,
+            now=round_time,
         )
         if not decision.winner_quote:
+            if fallback_applied:
+                decision.fallback_applied = True
+                decision.fallback_from_merchant = fallback_from_merchant
+                decision.fallback_reason = fallback_reason
             return decision, None
 
-        is_valid, _ = revalidate_winner(decision.winner_quote, intent, db=db, now=current_time)
+        jit_reval_time = get_time()
+        is_valid, reason = revalidate_winner(decision.winner_quote, intent, db=db, now=jit_reval_time)
         if is_valid:
+            if fallback_applied:
+                decision.fallback_applied = True
+                decision.fallback_from_merchant = fallback_from_merchant
+                decision.fallback_reason = fallback_reason
+                decision.decision_rationale = (
+                    f"Original winner '{fallback_from_merchant}' failed JIT revalidation ({fallback_reason}). "
+                    f"Fell back to runner-up {decision.winner_quote.merchant_id} at ₹{decision.winner_quote.total_paise / 100:.2f}."
+                )
             return decision, decision.winner_quote
 
-        # Winner failed JIT revalidation; remove it from remaining candidate pool and re-evaluate
+        # Winner failed JIT revalidation; record metadata and fallback to remaining candidates
+        fallback_applied = True
+        fallback_from_merchant = decision.winner_quote.merchant_id
+        fallback_reason = reason or "JIT_REVALIDATION_FAILED"
         remaining_pool = [q for q in remaining_pool if q.merchant_id != decision.winner_quote.merchant_id]
 
     # No candidates survived revalidation
@@ -355,6 +355,13 @@ def route_with_fallback(
         policy=policy,
         preferred_merchant_id=preferred_merchant_id,
         db=db,
-        now=current_time,
+        now=get_time(),
     )
+    if fallback_applied:
+        empty_decision.fallback_applied = True
+        empty_decision.fallback_from_merchant = fallback_from_merchant
+        empty_decision.fallback_reason = fallback_reason
+        empty_decision.decision_rationale = (
+            f"All candidate quotes failed JIT revalidation (last failed: '{fallback_from_merchant}' due to {fallback_reason})."
+        )
     return empty_decision, None

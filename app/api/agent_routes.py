@@ -18,7 +18,7 @@ from app.api.deps import (
 )
 from app.crypto import issue_intent_jwt
 from app.merchant_keys import get_merchant_public_key, list_known_merchant_ids
-from app.models import MandateStatus
+from app.models import MandateRecord, MandateStatus
 from app.policy import authorize_mandate, verify_intent
 from app.quote_router import route_with_fallback
 from app.razorpay_client import RazorpayClient
@@ -76,7 +76,12 @@ def deliberate_goal(
     known_merchants = list_known_merchant_ids()
 
     # 1. Resolve authorized candidate merchants
-    if req.allowed_merchant_ids:
+    if req.allowed_merchant_ids is not None:
+        if len(req.allowed_merchant_ids) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="allowed_merchant_ids cannot be empty. Specify at least one merchant or omit the field.",
+            )
         target_merchants = req.allowed_merchant_ids
     elif req.merchant_id:
         target_merchants = [req.merchant_id]
@@ -146,43 +151,56 @@ def deliberate_goal(
 
     # 4. If an eligible winner exists within budget, authorize payment mandate & Razorpay order
     if status == "COMPLETED" and winner_quote and winner_quote.cart_jwt:
-        try:
-            winner_pub = get_merchant_public_key(winner_quote.merchant_id)
-            tx_idempotency_key = f"tx_agent_{req.request_id.hex}"
-
-            mandate_obj, mandate_jwt, record = authorize_mandate(
-                intent_jwt=intent_jwt,
-                cart_jwt=winner_quote.cart_jwt,
-                idempotency_key=tx_idempotency_key,
-                user_public_key_pem=user_pub,
-                merchant_public_key_pem=winner_pub,
-                platform_private_key_pem=platform_priv,
-                db=db,
-            )
-
-            # Create mock Razorpay order
-            rzp = RazorpayClient(mock_mode=True)
-            rzp_order = rzp.create_order(
-                amount_paise=record.authorized_amount_paise,
-                currency="INR",
-                receipt=record.order_idempotency_key,
-            )
-            record.status = MandateStatus.ORDER_CREATED
-            record.razorpay_order_id = rzp_order["id"]
-            db.commit()
-
+        tx_idempotency_key = f"tx_agent_{req.request_id.hex}"
+        existing_record = db.query(MandateRecord).filter_by(idempotency_key=tx_idempotency_key).first()
+        if existing_record:
+            # Idempotent replay of previously authorized mandate
             mandate_dict = {
-                "mandate_id": str(mandate_obj.mandate_id),
-                "intent_id": str(mandate_obj.intent_id),
-                "intent_hash": mandate_obj.intent_hash,
-                "cart_hash": mandate_obj.cart_hash,
-                "authorized_amount_paise": mandate_obj.authorized_amount_paise,
-                "mandate_jwt": mandate_jwt,
-                "status": record.status.value,
+                "mandate_id": str(existing_record.mandate_id),
+                "intent_id": str(existing_record.intent_id),
+                "intent_hash": "",
+                "cart_hash": existing_record.cart_hash,
+                "authorized_amount_paise": existing_record.authorized_amount_paise,
+                "mandate_jwt": existing_record.mandate_jwt,
+                "status": existing_record.status.value,
             }
-            razorpay_order_id = rzp_order["id"]
-        except Exception:
-            status = "POLICY_REJECTED"
+            razorpay_order_id = existing_record.razorpay_order_id
+        else:
+            try:
+                winner_pub = get_merchant_public_key(winner_quote.merchant_id)
+                mandate_obj, mandate_jwt, record = authorize_mandate(
+                    intent_jwt=intent_jwt,
+                    cart_jwt=winner_quote.cart_jwt,
+                    idempotency_key=tx_idempotency_key,
+                    user_public_key_pem=user_pub,
+                    merchant_public_key_pem=winner_pub,
+                    platform_private_key_pem=platform_priv,
+                    db=db,
+                )
+
+                # Create mock Razorpay order
+                rzp = RazorpayClient(mock_mode=True)
+                rzp_order = rzp.create_order(
+                    amount_paise=record.authorized_amount_paise,
+                    currency="INR",
+                    receipt=record.order_idempotency_key,
+                )
+                record.status = MandateStatus.ORDER_CREATED
+                record.razorpay_order_id = rzp_order["id"]
+                db.commit()
+
+                mandate_dict = {
+                    "mandate_id": str(mandate_obj.mandate_id),
+                    "intent_id": str(mandate_obj.intent_id),
+                    "intent_hash": mandate_obj.intent_hash,
+                    "cart_hash": mandate_obj.cart_hash,
+                    "authorized_amount_paise": mandate_obj.authorized_amount_paise,
+                    "mandate_jwt": mandate_jwt,
+                    "status": record.status.value,
+                }
+                razorpay_order_id = rzp_order["id"]
+            except Exception:
+                status = "POLICY_REJECTED"
 
     signed_cart_dict = None
     if signed_cart:
