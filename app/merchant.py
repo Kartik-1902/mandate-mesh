@@ -19,12 +19,8 @@ from app.models import CatalogItem, LedgerEntryType
 from app.schemas import CartLineItem, MerchantSignedCart
 
 
-def seed_catalog(
-    db: Session,
-    merchant_id: str = "merchant_cakehouse_01",
-) -> list[CatalogItem]:
-    """Pre-seeds standard merchant inventory items in PostgreSQL/SQLite if not present."""
-    default_items = [
+DEMO_CATALOGS: dict[str, list[dict[str, Any]]] = {
+    "merchant_cakehouse_01": [
         {
             "sku": "CAKE-CHOC-001",
             "name": "Chocolate Truffle Cake (1kg)",
@@ -65,25 +61,124 @@ def seed_catalog(
             "price_paise": 120000,  # ₹1,200.00
             "in_stock": True,
         },
-    ]
+    ],
+    "merchant_sweetdelight_02": [
+        {
+            "sku": "CAKE-CHOC-001",
+            "name": "Chocolate Truffle Cake (1kg)",
+            "description": "Delicious chocolate truffle cake with rich cocoa frosting.",
+            "category": "bakery",
+            "price_paise": 89000,  # ₹890.00 (Competitive pricing)
+            "in_stock": True,
+        },
+        {
+            "sku": "CAKE-VAN-001",
+            "name": "Classic Vanilla Bean Cake (1kg)",
+            "description": "Light and fluffy vanilla sponge cake with fresh whipped cream.",
+            "category": "bakery",
+            "price_paise": 60000,  # ₹600.00
+            "in_stock": True,
+        },
+        {
+            "sku": "CAKE-BUTTER-001",
+            "name": "Butterscotch Crunch Cake (1kg)",
+            "description": "Caramel sponge loaded with crunchy butterscotch praline.",
+            "category": "bakery",
+            "price_paise": 72000,  # ₹720.00
+            "in_stock": True,
+        },
+        {
+            "sku": "GIFT-CARD-001",
+            "name": "Party Candle Set & Greeting Card",
+            "description": "Assorted glitter candles with celebration greeting card.",
+            "category": "gifting",
+            "price_paise": 18000,  # ₹180.00
+            "in_stock": True,
+        },
+        {
+            "sku": "ELEC-POWER-001",
+            "name": "10000mAh Compact Power Bank",
+            "description": "Fast-charging dual USB portable power bank.",
+            "category": "electronics",
+            "price_paise": 99000,  # ₹990.00
+            "in_stock": True,
+        },
+    ],
+    "merchant_artisan_03": [
+        {
+            "sku": "CAKE-CHOC-001",
+            "name": "Artisanal Belgian Dark Truffle Cake (1kg)",
+            "description": "Handcrafted single-origin 70% dark chocolate gateau.",
+            "category": "bakery",
+            "price_paise": 120000,  # ₹1,200.00 (Premium artisanal)
+            "in_stock": True,
+        },
+        {
+            "sku": "BAKE-SOUR-001",
+            "name": "Artisanal Rustic Sourdough Loaf (500g)",
+            "description": "Naturally fermented 36-hour slow proofed country sourdough.",
+            "category": "bakery",
+            "price_paise": 35000,  # ₹350.00
+            "in_stock": True,
+        },
+        {
+            "sku": "BAKE-MAC-001",
+            "name": "Parisian Macarons Box (Pack of 6)",
+            "description": "Assorted delicate almond macarons with gourmet ganache.",
+            "category": "bakery",
+            "price_paise": 65000,  # ₹650.00
+            "in_stock": True,
+        },
+        {
+            "sku": "GIFT-BOX-001",
+            "name": "Luxury Wooden Gift Box with Silk Ribbon",
+            "description": "Handcrafted pine wood gift box with customized note.",
+            "category": "gifting",
+            "price_paise": 45000,  # ₹450.00
+            "in_stock": True,
+        },
+    ],
+}
 
-    seeded = []
-    for item_data in default_items:
-        existing = db.query(CatalogItem).filter_by(sku=item_data["sku"]).first()
-        if not existing:
-            item = CatalogItem(
-                merchant_id=merchant_id,
-                sku=item_data["sku"],
-                name=item_data["name"],
-                description=item_data["description"],
-                category=item_data["category"],
-                price_paise=item_data["price_paise"],
-                in_stock=item_data["in_stock"],
+
+def seed_catalog(
+    db: Session,
+    merchant_id: str | None = None,
+) -> list[CatalogItem]:
+    """Pre-seeds standard merchant inventory items in PostgreSQL/SQLite if not present.
+
+    Args:
+        db: Active SQLAlchemy database session.
+        merchant_id: Optional merchant ID to seed. If None, seeds all known demo merchants.
+
+    Returns:
+        list[CatalogItem]: The seeded or existing catalog item rows.
+    """
+    targets = [merchant_id] if merchant_id else list(DEMO_CATALOGS.keys())
+    seeded: list[CatalogItem] = []
+
+    for mid in targets:
+        items_data = DEMO_CATALOGS.get(mid, DEMO_CATALOGS["merchant_cakehouse_01"])
+        for item_data in items_data:
+            existing = (
+                db.query(CatalogItem)
+                .filter_by(merchant_id=mid, sku=item_data["sku"])
+                .first()
             )
-            db.add(item)
-            seeded.append(item)
-        else:
-            seeded.append(existing)
+            if not existing:
+                item = CatalogItem(
+                    merchant_id=mid,
+                    sku=item_data["sku"],
+                    name=item_data["name"],
+                    description=item_data["description"],
+                    category=item_data["category"],
+                    price_paise=item_data["price_paise"],
+                    in_stock=item_data["in_stock"],
+                )
+                db.add(item)
+                seeded.append(item)
+            else:
+                seeded.append(existing)
 
     db.flush()
     return seeded

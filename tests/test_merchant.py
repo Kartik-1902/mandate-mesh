@@ -57,3 +57,56 @@ def test_merchant_sign_cart_nonexistent_sku_raises_404(db_session, merchant_keys
             merchant_private_key_pem=priv,
             db=db_session,
         )
+
+
+def test_seed_catalog_multi_merchant_isolation(db_session):
+    """seed_catalog() seeds all 3 demo merchants with independent inventories."""
+    from app.models import CatalogItem
+
+    seeded = seed_catalog(db_session)
+    assert len(seeded) == 14  # 5 + 5 + 4 items
+
+    cake_items = db_session.query(CatalogItem).filter_by(merchant_id="merchant_cakehouse_01").all()
+    sweet_items = db_session.query(CatalogItem).filter_by(merchant_id="merchant_sweetdelight_02").all()
+    artisan_items = db_session.query(CatalogItem).filter_by(merchant_id="merchant_artisan_03").all()
+
+    assert len(cake_items) == 5
+    assert len(sweet_items) == 5
+    assert len(artisan_items) == 4
+
+
+def test_sign_cart_merchant_catalog_pricing_isolation(db_session):
+    """Each merchant authoritatively prices the exact same SKU (CAKE-CHOC-001) from their own catalog."""
+    from app.merchant_keys import get_merchant_private_key
+
+    seed_catalog(db_session)
+
+    # 1. CakeHouse prices at ₹940.00
+    priv_cake = get_merchant_private_key("merchant_cakehouse_01")
+    cart_cake, _ = sign_cart(
+        merchant_id="merchant_cakehouse_01",
+        line_items_req=[{"sku": "CAKE-CHOC-001", "quantity": 1}],
+        merchant_private_key_pem=priv_cake,
+        db=db_session,
+    )
+    assert cart_cake.total_paise == 94000
+
+    # 2. Sweet Delight prices competitively at ₹890.00
+    priv_sweet = get_merchant_private_key("merchant_sweetdelight_02")
+    cart_sweet, _ = sign_cart(
+        merchant_id="merchant_sweetdelight_02",
+        line_items_req=[{"sku": "CAKE-CHOC-001", "quantity": 1}],
+        merchant_private_key_pem=priv_sweet,
+        db=db_session,
+    )
+    assert cart_sweet.total_paise == 89000
+
+    # 3. Artisan prices at premium ₹1,200.00
+    priv_artisan = get_merchant_private_key("merchant_artisan_03")
+    cart_artisan, _ = sign_cart(
+        merchant_id="merchant_artisan_03",
+        line_items_req=[{"sku": "CAKE-CHOC-001", "quantity": 1}],
+        merchant_private_key_pem=priv_artisan,
+        db=db_session,
+    )
+    assert cart_artisan.total_paise == 120000

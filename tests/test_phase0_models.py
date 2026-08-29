@@ -109,7 +109,7 @@ def test_webhook_event_dedup_constraint(db_session):
 
 
 def test_catalog_item_creation_and_uniqueness(db_session):
-    item = CatalogItem(
+    item1 = CatalogItem(
         merchant_id="merchant_cakehouse_01",
         sku="CAKE-CHOC-001",
         name="Chocolate Truffle Cake (1kg)",
@@ -118,17 +118,32 @@ def test_catalog_item_creation_and_uniqueness(db_session):
         price_paise=94000,
         in_stock=True,
     )
-    db_session.add(item)
+    db_session.add(item1)
     db_session.commit()
 
-    assert item.id is not None
-    assert item.price_paise == 94000
+    assert item1.id is not None
+    assert item1.price_paise == 94000
 
-    # Duplicate SKU must fail
+    # Different merchant with the SAME SKU must succeed (scoped SKU namespace)
+    item2_diff_merchant = CatalogItem(
+        merchant_id="merchant_sweetdelight_02",
+        sku="CAKE-CHOC-001",
+        name="Sweet Delight Chocolate Cake",
+        description="Competitive price cake",
+        category="bakery",
+        price_paise=89000,
+        in_stock=True,
+    )
+    db_session.add(item2_diff_merchant)
+    db_session.commit()
+    assert item2_diff_merchant.id is not None
+    assert item2_diff_merchant.price_paise == 89000
+
+    # Duplicate SKU under the SAME merchant must fail unique constraint uq_merchant_sku
     duplicate_item = CatalogItem(
         merchant_id="merchant_cakehouse_01",
         sku="CAKE-CHOC-001",
-        name="Different Cake",
+        name="Duplicate Cake for CakeHouse",
         description="Description",
         category="bakery",
         price_paise=50000,

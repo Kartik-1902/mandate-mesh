@@ -166,10 +166,13 @@ class WebhookEvent(Base):
 class CatalogItem(Base):
     """Authoritative merchant product catalog in PostgreSQL."""
     __tablename__ = "catalog_items"
+    __table_args__ = (
+        UniqueConstraint("merchant_id", "sku", name="uq_merchant_sku"),
+    )
 
     id: Mapped[int] = mapped_column(PK_BIGINT, primary_key=True, autoincrement=True)
     merchant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
-    sku: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    sku: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
