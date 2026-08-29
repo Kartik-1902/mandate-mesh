@@ -5,15 +5,19 @@
 
 const API_BASE = "http://localhost:8000/api/v1";
 
-export async function deliberateGoal(goal, initialBudgetPaise = null, merchantId = "merchant_cakehouse_01") {
+export async function deliberateGoal(goal, initialBudgetPaise = null, allowedMerchantIds = null) {
+  const payload = {
+    goal,
+    initial_budget_paise: initialBudgetPaise,
+  };
+  if (allowedMerchantIds && allowedMerchantIds.length > 0) {
+    payload.allowed_merchant_ids = allowedMerchantIds;
+  }
+
   const res = await fetch(`${API_BASE}/agent/deliberate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      goal,
-      initial_budget_paise: initialBudgetPaise,
-      merchant_id: merchantId,
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const err = await res.json();

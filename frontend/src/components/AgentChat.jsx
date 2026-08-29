@@ -10,7 +10,7 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
   const [escalating, setEscalating] = useState(false);
 
   const samplePrompts = [
-    { label: '🎂 Birthday Cake < Rs. 1500', text: 'Order me a birthday cake under Rs. 1500' },
+    { label: '🎂 Multi-Merchant Cake < Rs. 1500', text: 'Order a 1kg chocolate cake under Rs. 1500 comparing all bakeries' },
     { label: '🍫 Choc Cake < Rs. 800 (HITL Escalation)', text: 'Order a chocolate cake under Rs. 800' },
     { label: '🎁 Card + Cake Combo < Rs. 2000', text: 'Order a chocolate cake and greeting card under Rs. 2000' },
   ];

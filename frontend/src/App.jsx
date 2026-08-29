@@ -1,6 +1,7 @@
 import React, { useState, Component } from 'react';
 import Header from './components/Header';
 import AgentChat from './components/AgentChat';
+import CompetitiveQuotePanel from './components/CompetitiveQuotePanel';
 import MandateChainVisualizer from './components/MandateChainVisualizer';
 import AttackSimulator from './components/AttackSimulator';
 import AuditLedgerTable from './components/AuditLedgerTable';
@@ -36,10 +37,18 @@ class ErrorBoundary extends Component {
 
 export default function App() {
   const [activeMandate, setActiveMandate] = useState(null);
+  const [routingDecision, setRoutingDecision] = useState(null);
+  const [candidateQuotes, setCandidateQuotes] = useState([]);
   const [ledgerTrigger, setLedgerTrigger] = useState(0);
   const [chainValid, setChainValid] = useState(true);
 
   const handleAgentDeliberate = (res) => {
+    if (res.routing_decision) {
+      setRoutingDecision(res.routing_decision);
+    }
+    if (res.candidate_quotes) {
+      setCandidateQuotes(res.candidate_quotes);
+    }
     if (res.mandate) {
       setActiveMandate({
         mandate_id: res.mandate.mandate_id,
@@ -85,8 +94,15 @@ export default function App() {
           </ErrorBoundary>
         </div>
 
-        {/* Right: Cryptographic Mandate Chain + Adversarial Attack Playground */}
+        {/* Right: Competitive Quotes + Cryptographic Mandate Chain + Adversarial Attack Playground */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          <ErrorBoundary>
+            <CompetitiveQuotePanel
+              routingDecision={routingDecision}
+              candidateQuotes={candidateQuotes}
+            />
+          </ErrorBoundary>
+
           <ErrorBoundary>
             <MandateChainVisualizer
               activeMandate={activeMandate}
