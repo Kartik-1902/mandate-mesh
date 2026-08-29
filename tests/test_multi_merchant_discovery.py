@@ -68,7 +68,7 @@ def test_collect_merchant_quotes_queries_all_merchants(db_session):
 
 
 def test_collect_merchant_quotes_handles_missing_sku_gracefully(db_session):
-    """If a SKU is missing at some merchants, collect_merchant_quotes returns available ones."""
+    """Bug 2: If a SKU is missing at some merchants, collect_merchant_quotes preserves structured SKU_UNAVAILABLE status."""
     seed_catalog(db_session)
 
     merchants = ["merchant_cakehouse_01", "merchant_sweetdelight_02", "merchant_artisan_03"]
@@ -76,9 +76,44 @@ def test_collect_merchant_quotes_handles_missing_sku_gracefully(db_session):
     req = [{"sku": "BAKE-MAC-001", "quantity": 1}]
 
     quotes = collect_merchant_quotes(db_session, merchants, req)
-    assert len(quotes) == 1
-    assert quotes[0].merchant_id == "merchant_artisan_03"
-    assert quotes[0].total_paise == 65000
+    assert len(quotes) == 3
+
+    status_map = {q.merchant_id: q.status for q in quotes}
+    assert status_map["merchant_cakehouse_01"] == QuoteStatus.SKU_UNAVAILABLE
+    assert status_map["merchant_sweetdelight_02"] == QuoteStatus.SKU_UNAVAILABLE
+    assert status_map["merchant_artisan_03"] == QuoteStatus.ELIGIBLE
+
+    artisan_quote = next(q for q in quotes if q.merchant_id == "merchant_artisan_03")
+    assert artisan_quote.total_paise == 65000
+
+
+def test_collect_merchant_quotes_preserves_missing_key_failure(db_session):
+    """Bug 2: Unregistered merchant key produces structured MERCHANT_KEY_UNAVAILABLE outcome without crashing."""
+    seed_catalog(db_session)
+    merchants = ["merchant_cakehouse_01", "unknown_merchant_999"]
+    req = [{"sku": "CAKE-CHOC-001", "quantity": 1}]
+
+    quotes = collect_merchant_quotes(db_session, merchants, req)
+    assert len(quotes) == 2
+
+    unknown_quote = next(q for q in quotes if q.merchant_id == "unknown_merchant_999")
+    assert unknown_quote.status == QuoteStatus.MERCHANT_KEY_UNAVAILABLE
+    assert "No trusted signing key" in unknown_quote.rejection_reason
+
+    valid_quote = next(q for q in quotes if q.merchant_id == "merchant_cakehouse_01")
+    assert valid_quote.status == QuoteStatus.ELIGIBLE
+
+
+def test_browse_catalog_tool_scoped_at_db_query(db_session):
+    """Bug 5: browse_catalog_tool with merchant_ids filters at the database level."""
+    seed_catalog(db_session)
+
+    allowed = ["merchant_cakehouse_01", "merchant_sweetdelight_02"]
+    items = browse_catalog_tool(db_session, merchant_ids=allowed)
+
+    found_merchants = {it["merchant_id"] for it in items}
+    assert "merchant_artisan_03" not in found_merchants
+    assert found_merchants == {"merchant_cakehouse_01", "merchant_sweetdelight_02"}
 
 
 def test_run_buyer_agent_multi_merchant_routing(db_session):
@@ -158,3 +193,37 @@ def test_deliberate_api_single_merchant_backward_compatibility(client, db_sessio
     assert data["routing_decision"]["winner_merchant_id"] == "merchant_cakehouse_01"
     assert data["mandate"]["authorized_amount_paise"] == 94000
     assert len(data["candidate_quotes"]) == 1
+
+
+def test_deliberate_api_does_not_leak_raw_jwts_in_routing_decision(client, db_session):
+    """Bug 3 Regression: Recursively proves routing_decision and candidate_quotes never leak raw cart JWTs."""
+    payload = {
+        "goal": "Order a 1kg chocolate truffle cake",
+        "spend_cap_paise": 150000,
+        "allowed_merchant_ids": [
+            "merchant_cakehouse_01",
+            "merchant_sweetdelight_02",
+            "merchant_artisan_03",
+        ],
+    }
+
+    response = client.post("/api/v1/agent/deliberate", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    routing_decision_json = data["routing_decision"]
+    assert routing_decision_json is not None
+
+    def assert_no_jwt_leaks(obj, path=""):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                new_path = f"{path}.{k}" if path else k
+                assert k not in ["cart_jwt", "jwt", "private_key", "merchant_private_key"], f"Found leaked key '{k}' at {new_path}"
+                assert_no_jwt_leaks(v, new_path)
+        elif isinstance(obj, list):
+            for i, it in enumerate(obj):
+                assert_no_jwt_leaks(it, f"{path}[{i}]")
+
+    # Assert no JWT fields inside routing_decision
+    assert_no_jwt_leaks(routing_decision_json, "routing_decision")
+    assert_no_jwt_leaks(data["candidate_quotes"], "candidate_quotes")

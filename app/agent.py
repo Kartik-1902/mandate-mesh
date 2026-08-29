@@ -26,11 +26,20 @@ from langgraph.graph import StateGraph, START, END
 from app.config import settings
 from app.errors import CatalogSkuNotFound
 from app.merchant import sign_cart
-from app.merchant_keys import get_merchant_private_key, list_known_merchant_ids
+from app.merchant_keys import (
+    MerchantKeyNotFound,
+    get_merchant_private_key,
+    list_known_merchant_ids,
+)
 from app.models import CatalogItem
-from app.quote_router import verify_and_classify_quotes
+from app.quote_router import route, verify_and_classify_quotes
 from app.schemas import MerchantSignedCart, UserIntentCredential
-from app.schemas_routing import MerchantQuote, QuoteStatus, RoutingDecision
+from app.schemas_routing import (
+    MerchantQuote,
+    OptimizationPolicy,
+    QuoteStatus,
+    RoutingDecision,
+)
 
 
 # =============================================================================
@@ -64,14 +73,14 @@ def call_gemini_llm(prompt: str, api_key: str, model: str = "gemini-3.5-flash-li
 
 
 # =============================================================================
-# 1. Structural Tool Input Schemas (Zero Price Parameters)
+# 1. Tool Input Schema Definitions (Zero Financial Fields Invariant)
 # =============================================================================
 
 class BrowseCatalogInput(BaseModel):
-    """Filter criteria for browsing the authoritative merchant catalog."""
-    category: str | None = Field(None, description="Product category to filter by (e.g. bakery, electronics)")
-    query: str | None = Field(None, description="Search keyword for item name or description")
-    merchant_id: str | None = Field(None, description="Specific merchant ID to filter by")
+    """Filter parameters for browsing the merchant catalog."""
+    category: str | None = Field(default=None, description="Product category filter (e.g. 'bakery', 'gifting')")
+    query: str | None = Field(default=None, description="Free-text search query across item names and descriptions")
+    merchant_id: str | None = Field(default=None, description="Specific merchant ID to filter catalog items")
 
 
 class CartItemProposal(BaseModel):
@@ -106,13 +115,16 @@ def browse_catalog_tool(
     category: str | None = None,
     query: str | None = None,
     merchant_id: str | None = None,
+    merchant_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Tool: Queries active items from the merchant catalog with merchant metadata."""
+    """Tool: Queries active items from the merchant catalog with merchant metadata scoped at DB query."""
     q = db.query(CatalogItem).filter(CatalogItem.in_stock.is_(True))
     if category:
         q = q.filter(CatalogItem.category.ilike(f"%{category}%"))
     if merchant_id:
         q = q.filter(CatalogItem.merchant_id == merchant_id)
+    elif merchant_ids is not None:
+        q = q.filter(CatalogItem.merchant_id.in_(merchant_ids))
 
     items = q.all()
     results: list[dict[str, Any]] = []
@@ -179,7 +191,7 @@ def collect_merchant_quotes(
     proposed_items: list[dict[str, Any]],
     key_override_pem: bytes | str | Path | None = None,
 ) -> list[MerchantQuote]:
-    """Solicits and signs carts from all authorized candidate merchants."""
+    """Solicits and signs carts from all authorized candidate merchants, returning structured outcomes."""
     quotes: list[MerchantQuote] = []
 
     for mid in allowed_merchant_ids:
@@ -189,6 +201,26 @@ def collect_merchant_quotes(
                 if (key_override_pem and len(allowed_merchant_ids) == 1)
                 else get_merchant_private_key(mid)
             )
+        except MerchantKeyNotFound:
+            quotes.append(
+                MerchantQuote(
+                    merchant_id=mid,
+                    status=QuoteStatus.MERCHANT_KEY_UNAVAILABLE,
+                    rejection_reason=f"No trusted signing key registered for merchant '{mid}'.",
+                )
+            )
+            continue
+        except Exception as e:
+            quotes.append(
+                MerchantQuote(
+                    merchant_id=mid,
+                    status=QuoteStatus.MERCHANT_UNAVAILABLE,
+                    rejection_reason=f"Merchant signing key error: {e}",
+                )
+            )
+            continue
+
+        try:
             signed_cart, cart_jwt = sign_cart(
                 merchant_id=mid,
                 line_items_req=proposed_items,
@@ -213,11 +245,22 @@ def collect_merchant_quotes(
                 ],
             )
             quotes.append(quote)
-        except CatalogSkuNotFound:
-            # Merchant does not carry this SKU; skip without failing entire discovery
-            continue
-        except Exception:
-            continue
+        except CatalogSkuNotFound as e:
+            quotes.append(
+                MerchantQuote(
+                    merchant_id=mid,
+                    status=QuoteStatus.SKU_UNAVAILABLE,
+                    rejection_reason=f"Requested SKU not found in merchant catalog: {e}",
+                )
+            )
+        except Exception as e:
+            quotes.append(
+                MerchantQuote(
+                    merchant_id=mid,
+                    status=QuoteStatus.MERCHANT_UNAVAILABLE,
+                    rejection_reason=f"Merchant quote solicitation failed: {e}",
+                )
+            )
 
     return quotes
 
@@ -332,10 +375,8 @@ def browse_catalog_node_factory(db: Session) -> Callable[[BuyerAgentState], dict
         keywords = intent.get("keywords", [])
         allowed_merchants = state.get("allowed_merchant_ids", [])
 
-        # Retrieve active in-stock merchant items across allowed merchants
-        items = browse_catalog_tool(db=db)
-        if allowed_merchants:
-            items = [it for it in items if it["merchant_id"] in allowed_merchants]
+        # Bug 5: Retrieve active in-stock merchant items scoped at SQL level
+        items = browse_catalog_tool(db=db, merchant_ids=allowed_merchants if allowed_merchants else None)
 
         # Filter and score by keywords
         matching_candidates: list[dict[str, Any]] = []
@@ -446,39 +487,15 @@ def deliberate_and_route_node_factory(
                 expires_at=now + timedelta(hours=1),
             )
 
-        verified_quotes = verify_and_classify_quotes(
+        # 4 & 5. Deterministic Optimization & Routing
+        decision = route(
             quotes=solicited_quotes,
             intent=intent_obj,
+            policy=OptimizationPolicy.LOWEST_TOTAL_PRICE,
             db=db,
         )
-
-        eligible_quotes = [q for q in verified_quotes if q.status == QuoteStatus.ELIGIBLE]
-        excluded_quotes = [q for q in verified_quotes if q.status != QuoteStatus.ELIGIBLE]
-
-        # 5. Determine winning quote (Lowest Total Price)
-        winner_quote: MerchantQuote | None = None
-        price_savings_paise: int | None = None
-        if eligible_quotes:
-            sorted_eligible = sorted(eligible_quotes, key=lambda q: q.total_paise)
-            winner_quote = sorted_eligible[0]
-            if len(sorted_eligible) > 1:
-                price_savings_paise = sorted_eligible[-1].total_paise - winner_quote.total_paise
-
-        decision = RoutingDecision(
-            winner_merchant_id=winner_quote.merchant_id if winner_quote else None,
-            winner_quote=winner_quote,
-            quotes=verified_quotes,
-            eligible_quotes=eligible_quotes,
-            excluded_quotes=excluded_quotes,
-            optimization_objective="LOWEST_TOTAL_PRICE",
-            price_savings_paise=price_savings_paise,
-            decision_rationale=(
-                f"Selected {winner_quote.merchant_id} at ₹{winner_quote.total_paise / 100:.2f} "
-                f"(lowest verified eligible quote)."
-                if winner_quote
-                else "No eligible quote within policy and budget boundaries."
-            ),
-        )
+        verified_quotes = decision.quotes
+        winner_quote = decision.winner_quote
 
         # 6. Check for budget escalation if no eligible winner exists but quotes are available
         status = "COMPLETED" if winner_quote else "REQUIRES_USER_APPROVAL"

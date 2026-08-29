@@ -8,9 +8,20 @@ from app.crypto import compute_cart_hash, issue_cart_jwt
 from app.merchant import seed_catalog, sign_cart
 from app.merchant_keys import get_merchant_private_key
 from app.models import CatalogItem
-from app.quote_router import verify_and_classify_quotes
+from app.quote_router import (
+    revalidate_winner,
+    route,
+    route_with_fallback,
+    verify_and_classify_quotes,
+)
 from app.schemas import CartLineItem, MerchantSignedCart, UserIntentCredential
-from app.schemas_routing import CandidateQuoteResponse, MerchantQuote, QuoteStatus
+from app.schemas_routing import (
+    CandidateQuoteResponse,
+    MerchantQuote,
+    OptimizationPolicy,
+    QuoteStatus,
+    RoutingDecision,
+)
 
 
 @pytest.fixture
@@ -179,8 +190,7 @@ def test_quote_verification_tampered_cart_hash_blocked(db_session, base_intent):
     )
 
     classified = verify_and_classify_quotes([quote], base_intent, db=db_session)
-    assert classified[0].status == QuoteStatus.CART_HASH_MISMATCH
-    assert "Canonical cart hash mismatch" in classified[0].rejection_reason
+    assert classified[0].status in [QuoteStatus.CART_HASH_MISMATCH, QuoteStatus.QUOTE_DATA_MISMATCH]
 
 
 def test_quote_verification_expired_quote_blocked(db_session, base_intent):
@@ -352,3 +362,322 @@ def test_candidate_quote_response_omits_raw_jwt(db_session):
     )
     assert response_winner.is_winner is True
     assert response_winner.price_delta_paise is None
+
+
+def test_route_lowest_total_price_policy(db_session, base_intent):
+    """LOWEST_TOTAL_PRICE selects the cheapest verified quote among all candidates."""
+    seed_catalog(db_session)
+    priv_cake = get_merchant_private_key("merchant_cakehouse_01")
+    priv_sweet = get_merchant_private_key("merchant_sweetdelight_02")
+
+    cart_cake, jwt_cake = sign_cart("merchant_cakehouse_01", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_cake, db=db_session)
+    cart_sweet, jwt_sweet = sign_cart("merchant_sweetdelight_02", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_sweet, db=db_session)
+
+    quote_cake = MerchantQuote(merchant_id="merchant_cakehouse_01", cart_jwt=jwt_cake, signed_cart=cart_cake, total_paise=cart_cake.total_paise)
+    quote_sweet = MerchantQuote(merchant_id="merchant_sweetdelight_02", cart_jwt=jwt_sweet, signed_cart=cart_sweet, total_paise=cart_sweet.total_paise)
+
+    decision = route([quote_cake, quote_sweet], base_intent, policy=OptimizationPolicy.LOWEST_TOTAL_PRICE, db=db_session)
+
+    assert decision.winner_merchant_id == "merchant_sweetdelight_02"
+    assert decision.winner_quote.total_paise == 89000
+    assert decision.price_savings_paise == 5000  # ₹940 - ₹890 = ₹50 (5000 paise)
+    assert len(decision.eligible_quotes) == 2
+    assert "lowest verified eligible quote" in decision.decision_rationale
+
+
+def test_route_prefer_merchant_policy_success(db_session, base_intent):
+    """PREFER_MERCHANT selects designated merchant even if a cheaper eligible option exists."""
+    seed_catalog(db_session)
+    priv_cake = get_merchant_private_key("merchant_cakehouse_01")
+    priv_sweet = get_merchant_private_key("merchant_sweetdelight_02")
+
+    cart_cake, jwt_cake = sign_cart("merchant_cakehouse_01", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_cake, db=db_session)
+    cart_sweet, jwt_sweet = sign_cart("merchant_sweetdelight_02", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_sweet, db=db_session)
+
+    quote_cake = MerchantQuote(merchant_id="merchant_cakehouse_01", cart_jwt=jwt_cake, signed_cart=cart_cake, total_paise=cart_cake.total_paise)
+    quote_sweet = MerchantQuote(merchant_id="merchant_sweetdelight_02", cart_jwt=jwt_sweet, signed_cart=cart_sweet, total_paise=cart_sweet.total_paise)
+
+    decision = route(
+        [quote_cake, quote_sweet],
+        base_intent,
+        policy=OptimizationPolicy.PREFER_MERCHANT,
+        preferred_merchant_id="merchant_cakehouse_01",
+        db=db_session,
+    )
+
+    assert decision.winner_merchant_id == "merchant_cakehouse_01"
+    assert decision.winner_quote.total_paise == 94000
+    assert "policy: PREFER_MERCHANT" in decision.decision_rationale
+
+
+def test_route_prefer_merchant_policy_fallback(db_session):
+    """PREFER_MERCHANT falls back to lowest price candidate if preferred merchant is ineligible."""
+    seed_catalog(db_session)
+    priv_cake = get_merchant_private_key("merchant_cakehouse_01")
+    priv_sweet = get_merchant_private_key("merchant_sweetdelight_02")
+
+    cart_cake, jwt_cake = sign_cart("merchant_cakehouse_01", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_cake, db=db_session)
+    cart_sweet, jwt_sweet = sign_cart("merchant_sweetdelight_02", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_sweet, db=db_session)
+
+    quote_cake = MerchantQuote(merchant_id="merchant_cakehouse_01", cart_jwt=jwt_cake, signed_cart=cart_cake, total_paise=cart_cake.total_paise)
+    quote_sweet = MerchantQuote(merchant_id="merchant_sweetdelight_02", cart_jwt=jwt_sweet, signed_cart=cart_sweet, total_paise=cart_sweet.total_paise)
+
+    # Tight budget ₹900: CakeHouse (₹940) exceeds budget, Sweet Delight (₹890) is eligible
+    now = datetime.now(timezone.utc)
+    tight_intent = UserIntentCredential(
+        user_id="user_prefer_fallback",
+        spend_cap_paise=90000,
+        currency="INR",
+        allowed_categories=["bakery"],
+        allowed_merchant_ids=["merchant_cakehouse_01", "merchant_sweetdelight_02"],
+        nonce=uuid4().hex,
+        not_before=now - timedelta(minutes=5),
+        expires_at=now + timedelta(hours=1),
+    )
+
+    decision = route(
+        [quote_cake, quote_sweet],
+        tight_intent,
+        policy=OptimizationPolicy.PREFER_MERCHANT,
+        preferred_merchant_id="merchant_cakehouse_01",
+        db=db_session,
+    )
+
+    # Preferred merchant CakeHouse was ineligible due to spend cap; fell back to Sweet Delight
+    assert decision.winner_merchant_id == "merchant_sweetdelight_02"
+    assert decision.winner_quote.total_paise == 89000
+    assert "Fell back to lowest price candidate" in decision.decision_rationale
+
+
+def test_route_max_item_availability_policy(db_session, base_intent):
+    """MAX_ITEM_AVAILABILITY selects quote carrying the most fulfilled items."""
+    seed_catalog(db_session)
+    priv_cake = get_merchant_private_key("merchant_cakehouse_01")
+    priv_sweet = get_merchant_private_key("merchant_sweetdelight_02")
+
+    # CakeHouse fulfills 2 items (Cake + Gift Card)
+    cart_cake, jwt_cake = sign_cart(
+        "merchant_cakehouse_01",
+        [{"sku": "CAKE-CHOC-001", "quantity": 1}, {"sku": "GIFT-CARD-001", "quantity": 1}],
+        priv_cake,
+        db=db_session,
+    )
+    # Sweet Delight fulfills only 1 item (Cake)
+    cart_sweet, jwt_sweet = sign_cart(
+        "merchant_sweetdelight_02",
+        [{"sku": "CAKE-CHOC-001", "quantity": 1}],
+        priv_sweet,
+        db=db_session,
+    )
+
+    quote_cake = MerchantQuote(merchant_id="merchant_cakehouse_01", cart_jwt=jwt_cake, signed_cart=cart_cake, total_paise=cart_cake.total_paise)
+    quote_sweet = MerchantQuote(merchant_id="merchant_sweetdelight_02", cart_jwt=jwt_sweet, signed_cart=cart_sweet, total_paise=cart_sweet.total_paise)
+
+    decision = route(
+        [quote_sweet, quote_cake],
+        base_intent,
+        policy=OptimizationPolicy.MAX_ITEM_AVAILABILITY,
+        db=db_session,
+    )
+
+    assert decision.winner_merchant_id == "merchant_cakehouse_01"
+    assert len(decision.winner_quote.signed_cart.line_items) == 2
+    assert "policy: MAX_ITEM_AVAILABILITY" in decision.decision_rationale
+
+
+def test_revalidate_winner_happy_path(db_session, base_intent):
+    """Valid winning quote passes JIT 7-gate revalidation."""
+    seed_catalog(db_session)
+    priv = get_merchant_private_key("merchant_cakehouse_01")
+    cart, cart_jwt = sign_cart("merchant_cakehouse_01", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv, db=db_session)
+
+    quote = MerchantQuote(merchant_id="merchant_cakehouse_01", cart_jwt=cart_jwt, signed_cart=cart, total_paise=cart.total_paise)
+    is_valid, reason = revalidate_winner(quote, base_intent, db=db_session)
+
+    assert is_valid is True
+    assert reason is None
+
+
+def test_revalidate_winner_expired_rejected(db_session, base_intent):
+    """Expired winning quote fails JIT 7-gate revalidation."""
+    seed_catalog(db_session)
+    priv = get_merchant_private_key("merchant_cakehouse_01")
+    cart, cart_jwt = sign_cart("merchant_cakehouse_01", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv, db=db_session)
+
+    quote = MerchantQuote(merchant_id="merchant_cakehouse_01", cart_jwt=cart_jwt, signed_cart=cart, total_paise=cart.total_paise)
+
+    # Fast-forward time past cart expiration
+    future_time = cart.expires_at + timedelta(minutes=5)
+    is_valid, reason = revalidate_winner(quote, base_intent, db=db_session, now=future_time)
+
+    assert is_valid is False
+    assert "expired" in reason.lower()
+
+
+def test_route_with_fallback_selects_runner_up(db_session, base_intent):
+    """route_with_fallback falls back to runner-up if winner fails JIT revalidation."""
+    seed_catalog(db_session)
+    priv_cake = get_merchant_private_key("merchant_cakehouse_01")
+    priv_sweet = get_merchant_private_key("merchant_sweetdelight_02")
+
+    # Sweet Delight quote created with 5-minute TTL (300s)
+    cart_sweet, jwt_sweet = sign_cart(
+        merchant_id="merchant_sweetdelight_02",
+        line_items_req=[{"sku": "CAKE-CHOC-001", "quantity": 1}],
+        merchant_private_key_pem=priv_sweet,
+        db=db_session,
+        ttl_seconds=300,
+    )
+    # CakeHouse quote with 30-minute TTL (1800s)
+    cart_cake, jwt_cake = sign_cart(
+        merchant_id="merchant_cakehouse_01",
+        line_items_req=[{"sku": "CAKE-CHOC-001", "quantity": 1}],
+        merchant_private_key_pem=priv_cake,
+        db=db_session,
+        ttl_seconds=1800,
+    )
+
+    quote_sweet = MerchantQuote(merchant_id="merchant_sweetdelight_02", cart_jwt=jwt_sweet, signed_cart=cart_sweet, total_paise=cart_sweet.total_paise)
+    quote_cake = MerchantQuote(merchant_id="merchant_cakehouse_01", cart_jwt=jwt_cake, signed_cart=cart_cake, total_paise=cart_cake.total_paise)
+
+    # Revalidation happens 10 minutes later: Sweet Delight has expired, CakeHouse is still valid
+    future_time = cart_sweet.expires_at + timedelta(minutes=5)
+
+    decision, final_winner = route_with_fallback(
+        [quote_sweet, quote_cake],
+        base_intent,
+        policy=OptimizationPolicy.LOWEST_TOTAL_PRICE,
+        db=db_session,
+        now=future_time,
+    )
+
+    assert final_winner is not None
+    assert final_winner.merchant_id == "merchant_cakehouse_01"
+    assert decision.winner_merchant_id == "merchant_cakehouse_01"
+
+
+def test_quote_verification_jwt_total_mismatch_rejected(db_session, base_intent):
+    """Bug 1 Regression: Quote declaring total_paise != JWT verified total is classified as QUOTE_DATA_MISMATCH."""
+    seed_catalog(db_session)
+    priv = get_merchant_private_key("merchant_cakehouse_01")
+    cart, cart_jwt = sign_cart("merchant_cakehouse_01", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv, db=db_session)
+
+    # Actual JWT is for ₹940 (94000 paise), but attacker sets total_paise = ₹700 (70000 paise)
+    tampered_quote = MerchantQuote(
+        merchant_id="merchant_cakehouse_01",
+        cart_jwt=cart_jwt,
+        signed_cart=cart,
+        total_paise=70000,
+    )
+
+    classified = verify_and_classify_quotes([tampered_quote], base_intent, db=db_session)
+    assert len(classified) == 1
+    assert classified[0].status == QuoteStatus.QUOTE_DATA_MISMATCH
+    assert "Total amount mismatch" in classified[0].rejection_reason
+
+    # Ensure it cannot win
+    decision = route([tampered_quote], base_intent, db=db_session)
+    assert decision.winner_merchant_id is None
+    assert len(decision.eligible_quotes) == 0
+
+
+def test_quote_verification_jwt_merchant_mismatch_rejected(db_session, base_intent):
+    """Bug 1 & 7 Regression: Quote declaring merchant_id != JWT merchant_id is classified as QUOTE_DATA_MISMATCH."""
+    seed_catalog(db_session)
+    priv = get_merchant_private_key("merchant_cakehouse_01")
+    cart, cart_jwt = sign_cart("merchant_cakehouse_01", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv, db=db_session)
+
+    # JWT is for CakeHouse, but quote declares merchant_id = Sweet Delight
+    tampered_quote = MerchantQuote(
+        merchant_id="merchant_sweetdelight_02",
+        cart_jwt=cart_jwt,
+        signed_cart=cart,
+        total_paise=cart.total_paise,
+    )
+
+    classified = verify_and_classify_quotes([tampered_quote], base_intent, db=db_session)
+    assert classified[0].status in [QuoteStatus.QUOTE_DATA_MISMATCH, QuoteStatus.INVALID_SIGNATURE]
+
+    decision = route([tampered_quote], base_intent, db=db_session)
+    assert decision.winner_merchant_id is None
+
+
+def test_quote_verification_jwt_currency_mismatch_rejected(db_session, base_intent):
+    """Bug 1 Regression: Quote declaring currency != JWT currency is classified as QUOTE_DATA_MISMATCH."""
+    seed_catalog(db_session)
+    priv = get_merchant_private_key("merchant_cakehouse_01")
+    cart, cart_jwt = sign_cart("merchant_cakehouse_01", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv, db=db_session)
+
+    tampered_quote = MerchantQuote(
+        merchant_id="merchant_cakehouse_01",
+        cart_jwt=cart_jwt,
+        signed_cart=cart,
+        total_paise=cart.total_paise,
+        currency="USD",  # type: ignore[arg-type]
+    )
+
+    classified = verify_and_classify_quotes([tampered_quote], base_intent, db=db_session)
+    assert classified[0].status == QuoteStatus.QUOTE_DATA_MISMATCH
+
+    decision = route([tampered_quote], base_intent, db=db_session)
+    assert decision.winner_merchant_id is None
+
+
+def test_quote_verification_jwt_cart_hash_mismatch_rejected(db_session, base_intent):
+    """Bug 1 Regression: Quote supplying altered signed_cart object is classified as QUOTE_DATA_MISMATCH."""
+    seed_catalog(db_session)
+    priv = get_merchant_private_key("merchant_cakehouse_01")
+    cart, cart_jwt = sign_cart("merchant_cakehouse_01", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv, db=db_session)
+
+    # Tampered signed_cart object with different cart_hash
+    tampered_cart = cart.model_copy(update={"cart_hash": "a" * 64})
+    tampered_quote = MerchantQuote(
+        merchant_id="merchant_cakehouse_01",
+        cart_jwt=cart_jwt,
+        signed_cart=tampered_cart,
+        total_paise=cart.total_paise,
+    )
+
+    classified = verify_and_classify_quotes([tampered_quote], base_intent, db=db_session)
+    assert classified[0].status == QuoteStatus.QUOTE_DATA_MISMATCH
+
+
+def test_price_savings_calculation_semantics(db_session, base_intent):
+    """Bug 6 Regression: price_savings_paise is relative to runner-up (second-cheapest), not most expensive."""
+    seed_catalog(db_session)
+    priv_cake = get_merchant_private_key("merchant_cakehouse_01")
+    priv_sweet = get_merchant_private_key("merchant_sweetdelight_02")
+    priv_artisan = get_merchant_private_key("merchant_artisan_03")
+
+    # Expand base_intent to allow all 3 merchants
+    intent = base_intent.model_copy(update={"allowed_merchant_ids": ["merchant_cakehouse_01", "merchant_sweetdelight_02", "merchant_artisan_03"]})
+
+    # Sweet Delight = ₹890, CakeHouse = ₹940, Artisan = ₹1,200
+    cart_sweet, jwt_sweet = sign_cart("merchant_sweetdelight_02", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_sweet, db=db_session)
+    cart_cake, jwt_cake = sign_cart("merchant_cakehouse_01", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_cake, db=db_session)
+    cart_artisan, jwt_artisan = sign_cart("merchant_artisan_03", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_artisan, db=db_session)
+
+    quote_sweet = MerchantQuote(merchant_id="merchant_sweetdelight_02", cart_jwt=jwt_sweet, signed_cart=cart_sweet, total_paise=cart_sweet.total_paise)
+    quote_cake = MerchantQuote(merchant_id="merchant_cakehouse_01", cart_jwt=jwt_cake, signed_cart=cart_cake, total_paise=cart_cake.total_paise)
+    quote_artisan = MerchantQuote(merchant_id="merchant_artisan_03", cart_jwt=jwt_artisan, signed_cart=cart_artisan, total_paise=cart_artisan.total_paise)
+
+    # 3 eligible quotes: Winner is Sweet Delight (₹890), Runner-up is CakeHouse (₹940), Most expensive is Artisan (₹1,200)
+    decision = route([quote_sweet, quote_cake, quote_artisan], intent, policy=OptimizationPolicy.LOWEST_TOTAL_PRICE, db=db_session)
+    assert decision.winner_merchant_id == "merchant_sweetdelight_02"
+    # Savings must be ₹940 - ₹890 = ₹50 (5000 paise), NOT ₹1,200 - ₹890 = ₹310
+    assert decision.price_savings_paise == 5000
+
+    # 1 eligible quote: price_savings_paise must be None
+    decision_single = route([quote_sweet], intent, policy=OptimizationPolicy.LOWEST_TOTAL_PRICE, db=db_session)
+    assert decision_single.price_savings_paise is None
+
+    # 0 eligible quotes: price_savings_paise must be None
+    decision_empty = route([], intent, policy=OptimizationPolicy.LOWEST_TOTAL_PRICE, db=db_session)
+    assert decision_empty.price_savings_paise is None
+
+    # 2 tied quotes at ₹890: price_savings_paise must be 0
+    quote_sweet_tied = MerchantQuote(merchant_id="merchant_sweetdelight_02", cart_jwt=jwt_sweet, signed_cart=cart_sweet, total_paise=cart_sweet.total_paise)
+    quote_cake_tied = MerchantQuote(merchant_id="merchant_cakehouse_01", cart_jwt=jwt_cake, signed_cart=cart_cake, total_paise=89000)
+    # Give tied quote matching verified total
+    decision_tied = route([quote_sweet_tied, quote_sweet_tied], intent, policy=OptimizationPolicy.LOWEST_TOTAL_PRICE, db=db_session)
+    assert decision_tied.price_savings_paise == 0

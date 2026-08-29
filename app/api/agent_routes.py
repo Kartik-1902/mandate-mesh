@@ -22,7 +22,11 @@ from app.models import MandateStatus
 from app.policy import authorize_mandate, verify_intent
 from app.razorpay_client import RazorpayClient
 from app.schemas import UserIntentCredential
-from app.schemas_routing import CandidateQuoteResponse, RoutingDecision
+from app.schemas_routing import (
+    CandidateQuoteResponse,
+    RoutingDecision,
+    RoutingDecisionResponse,
+)
 
 router = APIRouter(prefix="/api/v1/agent", tags=["Buyer Agent"])
 
@@ -47,7 +51,7 @@ class DeliberateResponse(BaseModel):
     llm_reasoning: str | None
     mandate: dict[str, Any] | None = None
     razorpay_order_id: str | None = None
-    routing_decision: RoutingDecision | None = None
+    routing_decision: RoutingDecisionResponse | None = None
     candidate_quotes: list[CandidateQuoteResponse] = Field(default_factory=list)
 
 
@@ -177,6 +181,12 @@ def deliberate_goal(
         signed_cart_dict = signed_cart.model_dump()
         signed_cart_dict["cart_id"] = str(signed_cart.cart_id)
 
+    routing_decision_resp = (
+        RoutingDecisionResponse.from_routing_decision(routing_decision)
+        if routing_decision
+        else None
+    )
+
     return DeliberateResponse(
         status=status,
         goal=req.goal,
@@ -188,7 +198,7 @@ def deliberate_goal(
         llm_reasoning=res.get("llm_reasoning"),
         mandate=mandate_dict,
         razorpay_order_id=razorpay_order_id,
-        routing_decision=routing_decision,
+        routing_decision=routing_decision_resp,
         candidate_quotes=candidate_quotes,
     )
 

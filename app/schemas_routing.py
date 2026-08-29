@@ -17,6 +17,14 @@ from pydantic import BaseModel, Field
 from app.schemas import MerchantSignedCart
 
 
+class OptimizationPolicy(str, Enum):
+    """Policies governing multi-merchant candidate ranking and winner selection."""
+
+    LOWEST_TOTAL_PRICE = "LOWEST_TOTAL_PRICE"
+    PREFER_MERCHANT = "PREFER_MERCHANT"
+    MAX_ITEM_AVAILABILITY = "MAX_ITEM_AVAILABILITY"
+
+
 class QuoteStatus(str, Enum):
     """Classification states for solicited merchant quotes."""
 
@@ -31,10 +39,12 @@ class QuoteStatus(str, Enum):
     MERCHANT_KEY_UNAVAILABLE = "MERCHANT_KEY_UNAVAILABLE"
     MERCHANT_UNAVAILABLE = "MERCHANT_UNAVAILABLE"
     DISALLOWED_CATEGORY = "DISALLOWED_CATEGORY"
+    SKU_UNAVAILABLE = "SKU_UNAVAILABLE"
 
     # 4. Cryptographic integrity violations
     INVALID_SIGNATURE = "INVALID_SIGNATURE"
     CART_HASH_MISMATCH = "CART_HASH_MISMATCH"
+    QUOTE_DATA_MISMATCH = "QUOTE_DATA_MISMATCH"
 
     # 5. Temporal and inventory constraints
     QUOTE_EXPIRED = "QUOTE_EXPIRED"
@@ -46,10 +56,10 @@ class MerchantQuote(BaseModel):
     """Internal model for a merchant's signed quote and verification status."""
 
     merchant_id: str
-    cart_jwt: str
-    signed_cart: MerchantSignedCart
-    total_paise: int
-    currency: Literal["INR"] = "INR"
+    cart_jwt: str | None = None
+    signed_cart: MerchantSignedCart | None = None
+    total_paise: int = 0
+    currency: str = "INR"
     status: QuoteStatus = QuoteStatus.ELIGIBLE
     rejection_reason: str | None = None
     verified_at: datetime | None = None
@@ -117,7 +127,44 @@ class RoutingDecision(BaseModel):
     quotes: list[MerchantQuote] = Field(default_factory=list)
     eligible_quotes: list[MerchantQuote] = Field(default_factory=list)
     excluded_quotes: list[MerchantQuote] = Field(default_factory=list)
-    optimization_objective: str = "LOWEST_TOTAL_PRICE"
+    optimization_objective: OptimizationPolicy = OptimizationPolicy.LOWEST_TOTAL_PRICE
     price_savings_paise: int | None = None
     deliberation_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     decision_rationale: str = ""
+
+
+class RoutingDecisionResponse(BaseModel):
+    """Safe external projection of a RoutingDecision omitting raw JWTs.
+
+    SECURITY INVARIANT:
+    Internal MerchantQuote objects holding cart_jwt are NEVER serialized to API callers.
+    """
+
+    winner_merchant_id: str | None = None
+    winner_total_paise: int | None = None
+    optimization_objective: OptimizationPolicy = OptimizationPolicy.LOWEST_TOTAL_PRICE
+    price_savings_paise: int | None = None
+    deliberation_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    decision_rationale: str = ""
+    candidate_quotes: list[CandidateQuoteResponse] = Field(default_factory=list)
+
+    @classmethod
+    def from_routing_decision(cls, decision: RoutingDecision) -> RoutingDecisionResponse:
+        winner_total = decision.winner_quote.total_paise if decision.winner_quote else None
+        candidate_projections = [
+            CandidateQuoteResponse.from_merchant_quote(
+                quote=q,
+                is_winner=(decision.winner_merchant_id == q.merchant_id and q.status == QuoteStatus.ELIGIBLE),
+                winner_total_paise=winner_total,
+            )
+            for q in decision.quotes
+        ]
+        return cls(
+            winner_merchant_id=decision.winner_merchant_id,
+            winner_total_paise=winner_total,
+            optimization_objective=decision.optimization_objective,
+            price_savings_paise=decision.price_savings_paise,
+            deliberation_timestamp=decision.deliberation_timestamp,
+            decision_rationale=decision.decision_rationale,
+            candidate_quotes=candidate_projections,
+        )
