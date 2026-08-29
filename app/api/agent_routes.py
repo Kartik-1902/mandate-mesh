@@ -80,15 +80,18 @@ def deliberate_goal(
     if status == "COMPLETED" and signed_cart and cart_jwt:
         max_budget = parsed_intent.get("max_budget_paise") if isinstance(parsed_intent, dict) else None
         spend_cap = max_budget if max_budget else signed_cart.total_paise
-        category = parsed_intent.get("category", "bakery") if isinstance(parsed_intent, dict) else "bakery"
-        
+        # Collect all categories from signed cart items
+        cart_categories = list({it.category for it in signed_cart.line_items}) if signed_cart else [category]
+        if not cart_categories:
+            cart_categories = ["bakery", "gifting"]
+            
         # Mint initial UserIntentCredential
         from datetime import datetime, timedelta, timezone
         now = datetime.now(timezone.utc)
         intent = UserIntentCredential(
             user_id="user_control_tower_01",
             spend_cap_paise=spend_cap,
-            allowed_categories=[category],
+            allowed_categories=cart_categories,
             allowed_merchant_ids=[req.merchant_id],
             nonce=uuid4().hex,
             not_before=now - timedelta(minutes=1),

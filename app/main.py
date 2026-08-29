@@ -56,16 +56,41 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         pass
 
-    # 4. Ensure local keys exist if directory present
+    # 4. Ensure local keys exist for user, platform, and all demo merchants
     try:
+        from app.merchant_keys import KNOWN_DEMO_MERCHANTS, MERCHANT_KEYS_DIR
+
         KEYS_DIR.mkdir(parents=True, exist_ok=True)
-        for actor in ["user", "merchant", "platform"]:
+        MERCHANT_KEYS_DIR.mkdir(parents=True, exist_ok=True)
+
+        for actor in ["user", "platform"]:
             priv_p = KEYS_DIR / f"{actor}_private.pem"
             pub_p = KEYS_DIR / f"{actor}_public.pem"
             if not priv_p.exists() or not pub_p.exists():
                 priv_b, pub_b = generate_es256_keypair()
                 priv_p.write_bytes(priv_b)
                 pub_p.write_bytes(pub_b)
+
+        # Generate per-merchant keys
+        for mid in KNOWN_DEMO_MERCHANTS:
+            m_dir = MERCHANT_KEYS_DIR / mid
+            m_dir.mkdir(parents=True, exist_ok=True)
+            priv_p = m_dir / "private.pem"
+            pub_p = m_dir / "public.pem"
+            if not priv_p.exists() or not pub_p.exists():
+                priv_b, pub_b = generate_es256_keypair()
+                priv_p.write_bytes(priv_b)
+                pub_p.write_bytes(pub_b)
+
+        # Mirror CakeHouse keys to legacy flat files for backward compatibility
+        cake_priv = MERCHANT_KEYS_DIR / "merchant_cakehouse_01" / "private.pem"
+        cake_pub = MERCHANT_KEYS_DIR / "merchant_cakehouse_01" / "public.pem"
+        flat_priv = KEYS_DIR / "merchant_private.pem"
+        flat_pub = KEYS_DIR / "merchant_public.pem"
+        if cake_priv.exists() and not flat_priv.exists():
+            flat_priv.write_bytes(cake_priv.read_bytes())
+        if cake_pub.exists() and not flat_pub.exists():
+            flat_pub.write_bytes(cake_pub.read_bytes())
     except Exception:
         pass
 

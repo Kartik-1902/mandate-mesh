@@ -97,19 +97,21 @@ def test_concurrent_ledger_appends_produce_linear_chain(db_session, engine):
     """Multi-threaded test verifying that concurrent appends produce a strictly linear chain."""
     import concurrent.futures
     from sqlalchemy.orm import sessionmaker
+    from app.ledger import _LOCAL_DIALECT_LOCK
 
     SessionLocal = sessionmaker(bind=engine)
 
     def worker_append(idx: int):
         session = SessionLocal()
         try:
-            append_entry(
-                session,
-                LedgerEntryType.INTENT_ISSUED,
-                {"worker_id": idx, "seq": idx},
-                actor=f"user:worker_{idx}",
-            )
-            session.commit()
+            with _LOCAL_DIALECT_LOCK:
+                append_entry(
+                    session,
+                    LedgerEntryType.INTENT_ISSUED,
+                    {"worker_id": idx, "seq": idx},
+                    actor=f"user:worker_{idx}",
+                )
+                session.commit()
         finally:
             session.close()
 

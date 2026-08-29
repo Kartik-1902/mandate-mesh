@@ -96,7 +96,7 @@ def sign_cart(
     db: Session,
     tax_paise: int = 0,
     ttl_seconds: int = 300,
-    kid: str = "merchant_cakehouse_01:key-1",
+    kid: str | None = None,
 ) -> tuple[MerchantSignedCart, str]:
     """Authoritatively prices line items against the merchant's catalog table and signs a cart quote.
 
@@ -107,7 +107,7 @@ def sign_cart(
         db: Active SQLAlchemy database session.
         tax_paise: Additional tax amount in paise.
         ttl_seconds: Cart expiration window (defaults to 5 minutes / 300s).
-        kid: Key identifier for the JWT header.
+        kid: Key identifier for the JWT header (defaults to f"{merchant_id}:key-1").
 
     Returns:
         tuple[MerchantSignedCart, str]: The validated cart model and signed JWT string.
@@ -156,8 +156,9 @@ def sign_cart(
     # Compute canonical cart hash
     cart.cart_hash = compute_cart_hash(cart)
 
-    # Issue signed JWT with embedded cart_hash
-    cart_jwt = issue_cart_jwt(cart, merchant_private_key_pem, kid=kid)
+    # Issue signed JWT with embedded cart_hash and merchant-specific kid
+    effective_kid = kid or f"{merchant_id}:key-1"
+    cart_jwt = issue_cart_jwt(cart, merchant_private_key_pem, kid=effective_kid)
 
     # Record in audit ledger
     append_entry(

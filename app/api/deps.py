@@ -42,18 +42,26 @@ def get_user_public_key_pem() -> bytes:
     return _FALLBACK_KEYS["user"][1]
 
 
-def get_merchant_public_key_pem() -> bytes:
-    pub_path = KEYS_DIR / "merchant_public.pem"
-    if pub_path.exists():
-        return load_public_key_pem(pub_path)
-    return _FALLBACK_KEYS["merchant"][1]
+def get_merchant_private_key(merchant_id: str) -> bytes:
+    """Resolves merchant private key from MerchantKeyRegistry."""
+    from app.merchant_keys import get_merchant_private_key as _get
+    return _get(merchant_id)
 
 
-def get_merchant_private_key_pem() -> bytes:
-    priv_path = KEYS_DIR / "merchant_private.pem"
-    if priv_path.exists():
-        return load_private_key_pem(priv_path)
-    return _FALLBACK_KEYS["merchant"][0]
+def get_merchant_public_key(merchant_id: str) -> bytes:
+    """Resolves merchant public key from MerchantKeyRegistry."""
+    from app.merchant_keys import get_merchant_public_key as _get
+    return _get(merchant_id)
+
+
+def get_merchant_public_key_pem(merchant_id: str = "merchant_cakehouse_01") -> bytes:
+    """Legacy backward-compatible getter (defaults to CakeHouse key)."""
+    return get_merchant_public_key(merchant_id)
+
+
+def get_merchant_private_key_pem(merchant_id: str = "merchant_cakehouse_01") -> bytes:
+    """Legacy backward-compatible getter (defaults to CakeHouse key)."""
+    return get_merchant_private_key(merchant_id)
 
 
 def get_platform_private_key_pem() -> bytes:

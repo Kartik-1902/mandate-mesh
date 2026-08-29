@@ -31,7 +31,7 @@ from app.schemas import MerchantSignedCart
 # 0. Live Gemini LLM Calling (Dual Mode)
 # =============================================================================
 
-def call_gemini_llm(prompt: str, api_key: str, model: str = "gemini-3.6-flash") -> str | None:
+def call_gemini_llm(prompt: str, api_key: str, model: str = "gemini-3.5-flash-lite") -> str | None:
     """Calls Gemini REST API using httpx for autonomous deliberation."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
@@ -215,8 +215,9 @@ def parse_goal_node(state: BuyerAgentState) -> dict[str, Any]:
     # 1. Live Gemini Parsing if API Key configured
     if api_key:
         prompt = (
-            f"You are an e-commerce purchasing intent parser. Extract structured search criteria from this user goal:\n"
+            f"You are an e-commerce purchasing intent parser for Mandate Mesh.\n"
             f"User Goal: '{goal_text}'\n\n"
+            f"Extract search keywords and category. Known merchant categories: 'bakery', 'gifting'. If unsure, set category to null.\n"
             f"Respond ONLY with a JSON object in this exact format (no markdown, no other text):\n"
             f'{{"category": "bakery", "keywords": ["keyword1", "keyword2"], "max_budget_paise": 150000}}\n'
             f"Note: 1 Rupee = 100 paise. If no budget is specified, set max_budget_paise to null."
@@ -255,6 +256,10 @@ def parse_goal_node(state: BuyerAgentState) -> dict[str, Any]:
 
     if any(k.lower() in ["cake", "pastry", "bakery", "bread"] for k in words):
         parsed["category"] = "bakery"
+    elif any(k.lower() in ["card", "gift", "candle", "greeting"] for k in words):
+        parsed["category"] = "gifting"
+    else:
+        parsed["category"] = None
 
     return {"parsed_intent": parsed}
 
@@ -263,16 +268,15 @@ def browse_catalog_node_factory(db: Session) -> Callable[[BuyerAgentState], dict
     """Node 2 Factory: Queries merchant catalog matching parsed intent."""
     def browse_catalog_node(state: BuyerAgentState) -> dict[str, Any]:
         intent = state.get("parsed_intent", {})
-        category = intent.get("category")
         keywords = intent.get("keywords", [])
 
-        # Query all items in category
-        items = browse_catalog_tool(db=db, category=category)
+        # Retrieve active in-stock merchant items
+        items = browse_catalog_tool(db=db)
 
-        # Filter by keywords if available
+        # Filter and score by keywords
         matching_candidates: list[dict[str, Any]] = []
         for item in items:
-            item_text = f"{item['name']} {item['description']}".lower()
+            item_text = f"{item['name']} {item['description']} {item['category']}".lower()
             score = sum(1 for kw in keywords if kw.lower() in item_text)
             matching_candidates.append({**item, "match_score": score})
 
