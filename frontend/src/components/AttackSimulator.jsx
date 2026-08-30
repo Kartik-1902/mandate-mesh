@@ -36,6 +36,20 @@ export default function AttackSimulator({ onAttackSuccess, onLedgerChange }) {
       expected: 'HTTP 200 · DEDUPLICATED (0 Double Debits)',
       color: '#00f0ff',
     },
+    {
+      id: 5,
+      name: 'Attack 5: Cross-Merchant Key Forgery',
+      desc: 'Submits Sweet Delight signature under CakeHouse identity.',
+      expected: 'HTTP 409 · POLICY_CART_SIGNATURE_INVALID',
+      color: '#ec4899',
+    },
+    {
+      id: 6,
+      name: 'Attack 6: Expired Quote Replay',
+      desc: 'Attempts to authorize expired cart quote after TTL expiration.',
+      expected: 'HTTP 409 · POLICY_CART_EXPIRED',
+      color: '#f97316',
+    },
   ];
 
   const handleRunAttack = async (attackId) => {

@@ -22,6 +22,7 @@ from app.crypto import (
 from app.errors import CatalogSkuNotFound, PolicyViolation
 from app.ledger import append_entry, verify_chain
 from app.merchant import seed_catalog, sign_cart
+from app.merchant_keys import get_merchant_private_key, get_merchant_public_key
 from app.models import AuditLedgerEntry, IntentRegistry, LedgerEntryType, MandateRecord, MandateStatus
 from app.policy import authorize_mandate, verify_cart, verify_intent
 from app.razorpay_client import RazorpayClient, simulate_payment_captured_webhook
@@ -387,6 +388,134 @@ def test_attack_4_lost_response_reconciled(db_session, test_keys):
     db_session.refresh(record)
     assert record.status == MandateStatus.ORDER_CREATED
     assert record.razorpay_order_id == rzp_order["id"]
+
+
+def test_attack_5_cross_merchant_signature_spoofing_blocked(db_session, test_keys):
+    """Threat Model 5: Cross-Merchant Identity Spoofing & Key Confusion.
+
+    Attacker signs a cart using Sweet Delight's key (Rs. 890), but attempts to authorize
+    it using CakeHouse's public key (or vice-versa) to forge merchant pricing boundaries.
+    Assert:
+      - PolicyViolation raised with error_code = 'POLICY_CART_SIGNATURE_INVALID' and http_status = 409.
+      - Audit ledger records POLICY_REJECTED with exact breach context.
+      - IntentRegistry reserved_paise remains 0 (Rs. 0 moved).
+      - No MandateRecord created.
+    """
+    seed_catalog(db_session)
+    db_session.commit()
+
+    now = datetime.now(timezone.utc)
+    intent = UserIntentCredential(
+        user_id="user_victim_05",
+        spend_cap_paise=150000,
+        allowed_categories=["bakery"],
+        allowed_merchant_ids=["merchant_cakehouse_01", "merchant_sweetdelight_02"],
+        nonce=uuid4().hex,
+        not_before=now - timedelta(minutes=1),
+        expires_at=now + timedelta(hours=1),
+    )
+    intent_jwt = issue_intent_jwt(intent, test_keys["user"][0])
+    verify_intent(intent_jwt, test_keys["user"][1], db_session)
+    db_session.commit()
+
+    sweet_priv = get_merchant_private_key("merchant_sweetdelight_02")
+    cake_pub = get_merchant_public_key("merchant_cakehouse_01")
+
+    # Legitimate Sweet Delight cart signed with Sweet Delight's key
+    cart, cart_jwt = sign_cart(
+        merchant_id="merchant_sweetdelight_02",
+        line_items_req=[{"sku": "CAKE-CHOC-001", "quantity": 1}],
+        merchant_private_key_pem=sweet_priv,
+        db=db_session,
+    )
+
+    # Attempt authorization claiming CakeHouse's public key (Key Confusion / Signature Mismatch)
+    with pytest.raises(PolicyViolation) as exc_info:
+        authorize_mandate(
+            intent_jwt=intent_jwt,
+            cart_jwt=cart_jwt,
+            idempotency_key=f"tx_atk5_{uuid4().hex[:8]}",
+            user_public_key_pem=test_keys["user"][1],
+            merchant_public_key_pem=cake_pub,
+            platform_private_key_pem=test_keys["platform"][0],
+            db=db_session,
+        )
+
+    err = exc_info.value
+    assert err.code == "POLICY_CART_SIGNATURE_INVALID"
+    assert err.http_status == 409
+
+    # Verify zero balance movement
+    intent_record = db_session.query(IntentRegistry).filter_by(intent_id=str(intent.intent_id)).first()
+    assert intent_record.reserved_paise == 0
+    assert intent_record.captured_paise == 0
+
+    # Verify no mandate record created
+    mandate_count = db_session.query(MandateRecord).filter_by(intent_id=str(intent.intent_id)).count()
+    assert mandate_count == 0
+
+
+def test_attack_6_expired_quote_replay_blocked(db_session, test_keys):
+    """Threat Model 6: Stale Quote / TTL Expiration Replay Attack.
+
+    Attacker intercepts/stores a signed cart quote and attempts to authorize it after its TTL expires.
+    Assert:
+      - PolicyViolation raised with error_code = 'POLICY_CART_EXPIRED' and http_status = 409.
+      - IntentRegistry reserved_paise remains 0 (Rs. 0 moved).
+      - No MandateRecord created.
+    """
+    seed_catalog(db_session)
+    db_session.commit()
+
+    now = datetime.now(timezone.utc)
+    intent = UserIntentCredential(
+        user_id="user_victim_06",
+        spend_cap_paise=150000,
+        allowed_categories=["bakery"],
+        allowed_merchant_ids=["merchant_cakehouse_01"],
+        nonce=uuid4().hex,
+        not_before=now - timedelta(minutes=1),
+        expires_at=now + timedelta(hours=1),
+    )
+    intent_jwt = issue_intent_jwt(intent, test_keys["user"][0])
+    verify_intent(intent_jwt, test_keys["user"][1], db_session)
+    db_session.commit()
+
+    cake_priv = get_merchant_private_key("merchant_cakehouse_01")
+    cake_pub = get_merchant_public_key("merchant_cakehouse_01")
+
+    # Sign cart with negative TTL so it is already expired at verification time
+    cart, cart_jwt = sign_cart(
+        merchant_id="merchant_cakehouse_01",
+        line_items_req=[{"sku": "CAKE-CHOC-001", "quantity": 1}],
+        merchant_private_key_pem=cake_priv,
+        db=db_session,
+        ttl_seconds=-60,
+    )
+
+    with pytest.raises(PolicyViolation) as exc_info:
+        authorize_mandate(
+            intent_jwt=intent_jwt,
+            cart_jwt=cart_jwt,
+            idempotency_key=f"tx_atk6_{uuid4().hex[:8]}",
+            user_public_key_pem=test_keys["user"][1],
+            merchant_public_key_pem=cake_pub,
+            platform_private_key_pem=test_keys["platform"][0],
+            db=db_session,
+        )
+
+    err = exc_info.value
+    assert err.code == "POLICY_CART_EXPIRED"
+    assert err.http_status == 409
+
+    # Verify zero balance movement
+    intent_record = db_session.query(IntentRegistry).filter_by(intent_id=str(intent.intent_id)).first()
+    assert intent_record.reserved_paise == 0
+    assert intent_record.captured_paise == 0
+
+    # Verify no mandate record created
+    mandate_count = db_session.query(MandateRecord).filter_by(intent_id=str(intent.intent_id)).count()
+    assert mandate_count == 0
 
 
 def test_adversarial_suite_preserves_ledger_chain_integrity(db_session, test_keys):

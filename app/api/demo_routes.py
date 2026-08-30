@@ -25,6 +25,7 @@ from app.crypto import (
 )
 from app.ledger import verify_chain
 from app.merchant import sign_cart
+from app.merchant_keys import get_merchant_private_key, get_merchant_public_key
 from app.models import MandateRecord, MandateStatus
 from app.policy import authorize_mandate, verify_intent
 from app.razorpay_client import RazorpayClient, simulate_payment_captured_webhook
@@ -217,7 +218,112 @@ def trigger_attack(
             "chain_valid": is_valid,
         }
 
-    raise HTTPException(status_code=400, detail="Invalid attack ID (must be 1-4)")
+    elif attack_id == 5:
+        # Attack 5: Cross-Merchant Identity Spoofing & Key Confusion
+        # Attacker signs a cart using Sweet Delight's key (₹890), but tampers claims or attempts
+        # authorization claiming to be CakeHouse to spoof pricing across merchant identity boundaries.
+        sweet_priv = get_merchant_private_key("merchant_sweetdelight_02")
+        cake_pub = get_merchant_public_key("merchant_cakehouse_01")
+
+        cart_model, cart_jwt = sign_cart(
+            merchant_id="merchant_sweetdelight_02",
+            line_items_req=[{"sku": "CAKE-CHOC-001", "quantity": 1}],
+            merchant_private_key_pem=sweet_priv,
+            db=db,
+        )
+
+        intent = UserIntentCredential(
+            user_id="user_victim_05",
+            spend_cap_paise=150000,
+            allowed_categories=["bakery"],
+            allowed_merchant_ids=["merchant_cakehouse_01", "merchant_sweetdelight_02"],
+            nonce=uuid4().hex,
+            not_before=now - timedelta(minutes=1),
+            expires_at=now + timedelta(hours=1),
+        )
+        intent_jwt = issue_intent_jwt(intent, user_priv)
+        verify_intent(intent_jwt, user_pub, db)
+        db.commit()
+
+        try:
+            # Attempt to verify Sweet Delight's signed cart against CakeHouse's public key (Key Confusion)
+            authorize_mandate(
+                intent_jwt=intent_jwt,
+                cart_jwt=cart_jwt,
+                idempotency_key=f"tx_ui_atk5_{uuid4().hex[:8]}",
+                user_public_key_pem=user_pub,
+                merchant_public_key_pem=cake_pub,
+                platform_private_key_pem=platform_priv,
+                db=db,
+            )
+            return {"status": "FAILED", "message": "Cross-merchant key confusion accepted unexpectedly!"}
+        except Exception as e:
+            is_valid, _ = verify_chain(db)
+            return {
+                "attack_id": 5,
+                "name": "Cross-Merchant Key Confusion & Signature Forgery",
+                "attempted_merchant": "merchant_cakehouse_01 (using merchant_sweetdelight_02 signature)",
+                "outcome": "BLOCKED",
+                "http_status": getattr(e, "http_status", 409),
+                "error_code": getattr(e, "code", "POLICY_CART_SIGNATURE_INVALID"),
+                "message": str(e),
+                "money_moved_paise": 0,
+                "chain_valid": is_valid,
+            }
+
+    elif attack_id == 6:
+        # Attack 6: Stale Quote / TTL Expiration Replay Attack
+        # Attacker attempts to authorize an expired cart quote.
+        cake_priv = get_merchant_private_key("merchant_cakehouse_01")
+        cake_pub = get_merchant_public_key("merchant_cakehouse_01")
+
+        cart_model, cart_jwt = sign_cart(
+            merchant_id="merchant_cakehouse_01",
+            line_items_req=[{"sku": "CAKE-CHOC-001", "quantity": 1}],
+            merchant_private_key_pem=cake_priv,
+            db=db,
+            ttl_seconds=-60,  # Signed as already expired 60s ago
+        )
+
+        intent = UserIntentCredential(
+            user_id="user_victim_06",
+            spend_cap_paise=150000,
+            allowed_categories=["bakery"],
+            allowed_merchant_ids=["merchant_cakehouse_01"],
+            nonce=uuid4().hex,
+            not_before=now - timedelta(minutes=1),
+            expires_at=now + timedelta(hours=1),
+        )
+        intent_jwt = issue_intent_jwt(intent, user_priv)
+        verify_intent(intent_jwt, user_pub, db)
+        db.commit()
+
+        try:
+            authorize_mandate(
+                intent_jwt=intent_jwt,
+                cart_jwt=cart_jwt,
+                idempotency_key=f"tx_ui_atk6_{uuid4().hex[:8]}",
+                user_public_key_pem=user_pub,
+                merchant_public_key_pem=cake_pub,
+                platform_private_key_pem=platform_priv,
+                db=db,
+            )
+            return {"status": "FAILED", "message": "Expired cart quote accepted unexpectedly!"}
+        except Exception as e:
+            is_valid, _ = verify_chain(db)
+            return {
+                "attack_id": 6,
+                "name": "Stale Quote / TTL Expiration Replay",
+                "attempted_cart_id": str(cart_model.cart_id),
+                "outcome": "BLOCKED",
+                "http_status": getattr(e, "http_status", 409),
+                "error_code": getattr(e, "code", "POLICY_CART_EXPIRED"),
+                "message": str(e),
+                "money_moved_paise": 0,
+                "chain_valid": is_valid,
+            }
+
+    raise HTTPException(status_code=400, detail="Invalid attack ID (must be 1-6)")
 
 
 @router.post("/simulate-capture")
