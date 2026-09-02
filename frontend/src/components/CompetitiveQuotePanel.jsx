@@ -117,7 +117,7 @@ export default function CompetitiveQuotePanel({ routingDecision, candidateQuotes
                     <div>
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Verified Total</span>
                       <p className="font-mono" style={{ fontSize: '1.2rem', fontWeight: 700, color: isWinner ? 'var(--accent-green)' : 'var(--text-primary)' }}>
-                        {q.total_paise != null ? `₹${(q.total_paise / 100).toFixed(2)}` : 'N/A'}
+                        {q.total_paise != null && q.total_paise > 0 ? `₹${(q.total_paise / 100).toFixed(2)}` : 'Unavailable'}
                       </p>
                     </div>
                     {q.price_delta_paise != null && q.price_delta_paise > 0 && (

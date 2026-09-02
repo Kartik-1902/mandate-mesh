@@ -206,7 +206,7 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
             )}
 
             {/* ADR-007: Human-in-the-Loop Budget Escalation Review Modal */}
-            {agentState.status === 'REQUIRES_USER_APPROVAL' && agentState.escalation_details && (
+            {agentState.status === 'REQUIRES_USER_APPROVAL' && agentState.escalation_details && agentState.escalation_details.suggested_total_paise > 0 && (
               <div style={{
                 background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.05))',
                 border: '1px solid var(--accent-amber)',
@@ -261,6 +261,16 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
                     Decline
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* No Candidate Match / Out of Stock */}
+            {agentState.status === 'NO_CANDIDATE_MATCH' && (
+              <div style={{ background: 'var(--accent-amber-dim)', border: '1px solid var(--accent-amber)', borderRadius: 'var(--radius-md)', padding: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <AlertTriangle size={20} className="text-amber" />
+                <p style={{ fontSize: '0.85rem', color: 'var(--accent-amber)', fontWeight: 600 }}>
+                  No matching items available in authorized merchant catalogs. Zero rupees moved.
+                </p>
               </div>
             )}
 

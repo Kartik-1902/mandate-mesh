@@ -393,7 +393,8 @@ def browse_catalog_node_factory(db: Session) -> Callable[[BuyerAgentState], dict
             kw_score = sum(1 for kw in keywords if kw.lower() in item_text)
             cat_bonus = 2 if category and item["category"].lower() == category.lower() else 0
             total_score = kw_score + cat_bonus
-            matching_candidates.append({**item, "match_score": total_score})
+            if not keywords or total_score > 0:
+                matching_candidates.append({**item, "match_score": total_score})
 
         # Sort primarily by match score descending, secondarily by price ascending (cheapest alternative first)
         matching_candidates.sort(key=lambda x: (-x["match_score"], x["price_paise"]))
@@ -413,7 +414,7 @@ def deliberate_and_route_node_factory(
         if not candidates:
             return {
                 "error": "No catalog items matched purchase criteria.",
-                "status": "ERROR",
+                "status": "NO_CANDIDATE_MATCH",
                 "escalation_details": None,
                 "all_quotes": [],
                 "routing_decision": None,
@@ -514,12 +515,17 @@ def deliberate_and_route_node_factory(
         winner_quote = decision.winner_quote
 
         # 6. Check for budget escalation if no eligible winner exists but quotes are available
-        status = "COMPLETED" if winner_quote else "REQUIRES_USER_APPROVAL"
+        priced_quotes = [q for q in verified_quotes if q.signed_cart and q.total_paise > 0]
         escalation_details = None
+        cheapest_quote = None
 
-        if not winner_quote and verified_quotes:
-            cheapest_quote = min(verified_quotes, key=lambda q: q.total_paise)
-            overspend_paise = cheapest_quote.total_paise - spend_cap
+        if winner_quote:
+            status = "COMPLETED"
+            active_quote = winner_quote
+        elif priced_quotes:
+            status = "REQUIRES_USER_APPROVAL"
+            cheapest_quote = min(priced_quotes, key=lambda q: q.total_paise)
+            overspend_paise = max(0, cheapest_quote.total_paise - spend_cap)
             escalation_details = {
                 "suggested_total_paise": cheapest_quote.total_paise,
                 "current_budget_paise": spend_cap,
@@ -530,8 +536,10 @@ def deliberate_and_route_node_factory(
                     f"User re-authorization required."
                 ),
             }
-
-        active_quote = winner_quote or (cheapest_quote if not winner_quote and verified_quotes else None)
+            active_quote = cheapest_quote
+        else:
+            status = "NO_CANDIDATE_MATCH"
+            active_quote = None
 
         return {
             "proposed_items": proposed_items,

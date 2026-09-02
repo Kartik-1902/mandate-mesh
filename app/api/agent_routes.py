@@ -143,9 +143,10 @@ def deliberate_goal(
     )
     winner_total = winner_quote.total_paise if winner_quote else None
 
-    # If no quote was eligible within budget, transition status to REQUIRES_USER_APPROVAL
-    if winner_quote is None and all_quotes:
-        status = "REQUIRES_USER_APPROVAL"
+    # If no quote was eligible within budget, transition status based on whether priced candidates exist
+    priced_quotes = [q for q in all_quotes if q.signed_cart and q.total_paise > 0]
+    if winner_quote is None:
+        status = "REQUIRES_USER_APPROVAL" if priced_quotes else res.get("status", "NO_CANDIDATE_MATCH")
 
     # Safe external projection of all candidate quotes (omitting raw JWTs per ADR-002 / Patch 1)
     candidate_quotes = [

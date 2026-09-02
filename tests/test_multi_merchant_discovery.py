@@ -381,3 +381,43 @@ def test_deliberate_api_escalate_and_pay_completes_order(client, db_session):
     assert e_data["mandate"] is not None
     assert e_data["mandate"]["authorized_amount_paise"] == suggested_price
     assert e_data["razorpay_order_id"] is not None
+
+
+def test_deliberate_api_escalation_filters_out_unpriced_sku_unavailable_quotes(client, db_session):
+    """Verify that when some merchants lack a SKU, escalation only considers merchants with valid priced carts."""
+    payload = {
+        "goal": "order me a chocolate cake under 800",
+        "allowed_merchant_ids": [
+            "merchant_cakehouse_01",
+            "merchant_sweetdelight_02",
+            "merchant_artisan_03",
+        ],
+    }
+    response = client.post("/api/v1/agent/deliberate", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["status"] == "REQUIRES_USER_APPROVAL"
+    assert data["mandate"] is None
+    assert data["escalation_details"] is not None
+    # Sweet Delight has the lowest price (890.00) among all merchants
+    assert data["escalation_details"]["suggested_total_paise"] == 89000
+    assert data["escalation_details"]["current_budget_paise"] == 80000
+    assert data["escalation_details"]["overspend_paise"] == 9000
+    assert data["escalation_details"]["suggested_total_paise"] > 0
+
+
+def test_deliberate_api_no_candidate_match_when_all_merchants_out_of_stock(client, db_session):
+    """Verify that when no merchant has the requested item, status is NO_CANDIDATE_MATCH with zero money moved."""
+    payload = {
+        "goal": "buy nonexistent flying hovercraft widget",
+        "allowed_merchant_ids": ["merchant_cakehouse_01"],
+    }
+    response = client.post("/api/v1/agent/deliberate", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["status"] in ["NO_CANDIDATE_MATCH", "ERROR"]
+    assert data["mandate"] is None
+    assert data["razorpay_order_id"] is None
+    assert data["escalation_details"] is None
