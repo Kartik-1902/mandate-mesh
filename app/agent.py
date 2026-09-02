@@ -549,6 +549,26 @@ class CommerceOrchestrator:
             "escalation_details": escalation_details,
         }
 
+    def plan_basket(
+        self,
+        proposed_items: list[dict[str, Any]],
+        allowed_merchant_ids: list[str] | None = None,
+        spend_cap_paise: int | None = None,
+        policy: OptimizationPolicy = OptimizationPolicy.LOWEST_TOTAL_PRICE,
+    ):
+        """Plans a deterministic mixed-basket allocation across allowed merchants (Milestone M6)."""
+        from app.basket_planner import plan_mixed_basket
+
+        merchants = allowed_merchant_ids or list_known_merchant_ids()
+        return plan_mixed_basket(
+            proposed_items=proposed_items,
+            allowed_merchant_ids=merchants,
+            db=self.db,
+            spend_cap_paise=spend_cap_paise,
+            policy=policy,
+            key_override_pem=self.merchant_private_key_pem,
+        )
+
 
 def deliberate_and_route_node_factory(
     db: Session,
@@ -653,7 +673,6 @@ def deliberate_and_route_node_factory(
 
     return deliberate_and_route_node
 
-    return deliberate_and_route_node
 
 
 # =============================================================================
