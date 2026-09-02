@@ -395,7 +395,7 @@ def test_authorize_mandate_multi_merchant_dynamic_key_resolution(client, test_ke
         "/checkout/sign-cart",
         json={
             "merchant_id": "merchant_sweetdelight_02",
-            "line_items": [{"sku": "CAKE-CHOC-001", "quantity": 1}],
+            "line_items": [{"sku": "SWT-CHOC-TRF-01", "quantity": 1}],
         },
     )
     assert res_cart.status_code == 200

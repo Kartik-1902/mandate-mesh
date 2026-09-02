@@ -18,7 +18,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, TypedDict
-from uuid import uuid4
+from uuid import UUID, uuid4
 import httpx
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -26,13 +26,13 @@ from langgraph.graph import StateGraph, START, END
 
 from app.config import settings
 from app.errors import CatalogSkuNotFound
-from app.merchant import sign_cart
+from app.merchant import seed_catalog, sign_cart
 from app.merchant_keys import (
     MerchantKeyNotFound,
     get_merchant_private_key,
     list_known_merchant_ids,
 )
-from app.models import CatalogItem
+from app.models import CanonicalProduct, CatalogItem
 from app.quote_router import route, verify_and_classify_quotes
 from app.schemas import MerchantSignedCart, UserIntentCredential
 from app.schemas_routing import (
@@ -192,7 +192,7 @@ def collect_merchant_quotes(
     proposed_items: list[dict[str, Any]],
     key_override_pem: bytes | str | Path | None = None,
 ) -> list[MerchantQuote]:
-    """Solicits and signs carts from all authorized candidate merchants, returning structured outcomes."""
+    """Solicits and signs carts from all authorized candidate merchants, resolving canonical product IDs to merchant-local SKUs."""
     quotes: list[MerchantQuote] = []
 
     for mid in allowed_merchant_ids:
@@ -222,9 +222,42 @@ def collect_merchant_quotes(
             continue
 
         try:
+            # Resolve product_id (canonical identity) to merchant-local SKU
+            line_items_req: list[dict[str, Any]] = []
+            for item_req in proposed_items:
+                qty = max(1, int(item_req.get("quantity", 1)))
+                if "product_id" in item_req and item_req["product_id"]:
+                    pid = item_req["product_id"]
+                    if isinstance(pid, str):
+                        try:
+                            pid = UUID(pid)
+                        except ValueError:
+                            pass
+                    catalog_item = (
+                        db.query(CatalogItem)
+                        .filter_by(merchant_id=mid, product_id=pid)
+                        .first()
+                    )
+                    if not catalog_item:
+                        raise CatalogSkuNotFound(f"Product '{pid}' not offered by merchant '{mid}'")
+                    line_items_req.append({"sku": catalog_item.sku, "quantity": qty})
+                elif "sku" in item_req:
+                    # Backward compatibility for direct SKU queries
+                    sku = item_req["sku"]
+                    catalog_item = (
+                        db.query(CatalogItem)
+                        .filter_by(merchant_id=mid, sku=sku)
+                        .first()
+                    )
+                    if not catalog_item:
+                        raise CatalogSkuNotFound(sku)
+                    line_items_req.append({"sku": sku, "quantity": qty})
+                else:
+                    raise ValueError("Each proposed item must specify either 'product_id' or 'sku'")
+
             signed_cart, cart_jwt = sign_cart(
                 merchant_id=mid,
-                line_items_req=proposed_items,
+                line_items_req=line_items_req,
                 merchant_private_key_pem=priv_pem,
                 db=db,
             )
@@ -251,7 +284,7 @@ def collect_merchant_quotes(
                 MerchantQuote(
                     merchant_id=mid,
                     status=QuoteStatus.SKU_UNAVAILABLE,
-                    rejection_reason=f"Requested SKU not found in merchant catalog: {e}",
+                    rejection_reason=f"Requested SKU/product not found in merchant catalog: {e}",
                 )
             )
         except Exception as e:
@@ -377,28 +410,47 @@ def parse_goal_node(state: BuyerAgentState) -> dict[str, Any]:
 
 
 def browse_catalog_node_factory(db: Session) -> Callable[[BuyerAgentState], dict[str, Any]]:
-    """Node 2 Factory: Queries merchant catalogs matching parsed intent."""
+    """Node 2 Factory: Queries canonical products matching parsed intent."""
     def browse_catalog_node(state: BuyerAgentState) -> dict[str, Any]:
         intent = state.get("parsed_intent", {})
         keywords = intent.get("keywords", [])
         category = intent.get("category")
-        allowed_merchants = state.get("allowed_merchant_ids", [])
 
-        # Retrieve active in-stock merchant items scoped at SQL level
-        items = browse_catalog_tool(db=db, merchant_ids=allowed_merchants if allowed_merchants else None)
+        # Query CanonicalProduct table
+        q = db.query(CanonicalProduct)
+        if category:
+            q = q.filter(CanonicalProduct.category.ilike(f"%{category}%"))
+
+        canonical_prods = q.all()
+        if not canonical_prods:
+            seed_catalog(db)
+            q = db.query(CanonicalProduct)
+            if category:
+                q = q.filter(CanonicalProduct.category.ilike(f"%{category}%"))
+            canonical_prods = q.all()
 
         # Filter and score by keywords and category
         matching_candidates: list[dict[str, Any]] = []
-        for item in items:
-            item_text = f"{item['name']} {item['description']} {item['category']}".lower()
-            kw_score = sum(1 for kw in keywords if kw.lower() in item_text)
-            cat_bonus = 2 if category and item["category"].lower() == category.lower() else 0
+        for prod in canonical_prods:
+            prod_text = f"{prod.canonical_name} {prod.description or ''} {prod.brand or ''} {prod.category}".lower()
+            kw_score = sum(1 for kw in keywords if kw.lower() in prod_text)
+            cat_bonus = 2 if category and prod.category.lower() == category.lower() else 0
             total_score = kw_score + cat_bonus
             if not keywords or total_score > 0:
-                matching_candidates.append({**item, "match_score": total_score})
+                min_price = min((it.price_paise for it in prod.catalog_items if it.in_stock), default=999999999)
+                matching_candidates.append({
+                    "product_id": str(prod.product_id),
+                    "canonical_name": prod.canonical_name,
+                    "brand": prod.brand,
+                    "category": prod.category,
+                    "description": prod.description,
+                    "tags": prod.tags,
+                    "match_score": total_score,
+                    "min_price_paise": min_price,
+                })
 
-        # Sort primarily by match score descending, secondarily by price ascending (cheapest alternative first)
-        matching_candidates.sort(key=lambda x: (-x["match_score"], x["price_paise"]))
+        # Sort primarily by match score descending, secondarily by min price ascending
+        matching_candidates.sort(key=lambda x: (-x["match_score"], x["min_price_paise"]))
 
         return {"catalog_candidates": matching_candidates}
 
@@ -430,34 +482,35 @@ def deliberate_and_route_node_factory(
         max_budget = parsed_intent.get("max_budget_paise")
         spend_cap = max_budget if max_budget is not None else state.get("spend_cap_paise", 150000)
 
-        # 1. Live Gemini Deliberation if API Key configured
+        # 1. Live Gemini Deliberation if API Key configured (LLM Blindness: Only Canonical Product Attributes)
         if api_key and candidates:
             catalog_summary = "\n".join([
-                f"- SKU: {c['sku']} | Merchant: {c['merchant_id']} | Name: {c['name']} | Category: {c['category']} | Price: Rs. {c['price_paise']/100:.2f}"
+                f"- Product ID: {c['product_id']} | Name: {c['canonical_name']} | Brand: {c.get('brand') or 'N/A'} | Category: {c['category']} | Description: {c.get('description') or ''}"
                 for c in candidates
             ])
             prompt = (
                 f"You are an autonomous shopping agent for Mandate Mesh.\n"
                 f"User Goal: '{goal}'\n\n"
-                f"Available Catalog Items:\n{catalog_summary}\n\n"
+                f"Available Canonical Products:\n{catalog_summary}\n\n"
                 f"Instructions:\n"
-                f"- Analyze the user goal. If the user asks for multiple items, select all matching SKUs and specify their quantities.\n"
-                f"- If the user asks for a single item, select the single best SKU that is closest to or within the user's budget and category.\n"
-                f"- If no item is strictly within budget, select the item that matches the specific requested product type and keywords (e.g. if the user asked for chocolate cake, do not pick vanilla cake; select the chocolate cake even if above budget so approval can be requested).\n"
+                f"- Analyze the user goal. If the user asks for multiple items, select all matching product IDs and specify their quantities.\n"
+                f"- If the user asks for a single item, select the single best product ID that matches the user's budget and category.\n"
+                f"- If no item is strictly within budget, select the item that matches the specific requested product type and keywords.\n"
                 f"- Respond ONLY with a JSON object in this exact format:\n"
-                f'{{"items": [{{"sku": "SKU-CODE", "quantity": 1}}], "reasoning": "1 sentence explanation"}}\n'
+                f'{{"items": [{{"product_id": "PRODUCT-UUID", "quantity": 1}}], "reasoning": "1 sentence explanation"}}\n'
             )
             llm_response = call_gemini_llm(prompt, api_key)
             if llm_response:
                 try:
                     clean_json = re.sub(r"^```(?:json)?\s*|\s*```$", "", llm_response.strip(), flags=re.MULTILINE)
                     llm_choice = json.loads(clean_json)
-                    valid_skus = {c["sku"] for c in candidates}
+                    valid_pids = {c["product_id"] for c in candidates}
                     if isinstance(llm_choice.get("items"), list) and len(llm_choice["items"]) > 0:
                         for it in llm_choice["items"]:
-                            if it.get("sku") in valid_skus:
+                            pid = it.get("product_id")
+                            if pid in valid_pids:
                                 proposed_items.append({
-                                    "sku": it["sku"],
+                                    "product_id": pid,
                                     "quantity": max(1, int(it.get("quantity", 1))),
                                 })
                         llm_reasoning = llm_choice.get("reasoning")
@@ -473,12 +526,11 @@ def deliberate_and_route_node_factory(
                 eligible_candidates = [c for c in candidates if not cat or c["category"].lower() == cat.lower()] or candidates
                 max_score = max((c.get("match_score", 0) for c in eligible_candidates), default=0)
                 best_candidates = [c for c in eligible_candidates if c.get("match_score", 0) == max_score] or eligible_candidates
-                chosen = min(best_candidates, key=lambda c: c["price_paise"])
+                chosen = best_candidates[0]
                 qty = state.get("quantity", 1)
-                proposed_items = [{"sku": chosen["sku"], "quantity": qty}]
+                proposed_items = [{"product_id": chosen["product_id"], "quantity": qty}]
 
-        primary_sku = proposed_items[0]["sku"]
-        primary_qty = proposed_items[0]["quantity"]
+        primary_qty = proposed_items[0]["quantity"] if proposed_items else 1
 
         allowed_merchants = state.get("allowed_merchant_ids") or list_known_merchant_ids()
 
@@ -542,9 +594,15 @@ def deliberate_and_route_node_factory(
             status = "NO_CANDIDATE_MATCH"
             active_quote = None
 
+        selected_sku = (
+            active_quote.signed_cart.line_items[0].sku
+            if (active_quote and active_quote.signed_cart and active_quote.signed_cart.line_items)
+            else None
+        )
+
         return {
             "proposed_items": proposed_items,
-            "selected_sku": primary_sku,
+            "selected_sku": selected_sku,
             "quantity": primary_qty,
             "signed_cart": active_quote.signed_cart if active_quote else None,
             "cart_jwt": active_quote.cart_jwt if active_quote else None,

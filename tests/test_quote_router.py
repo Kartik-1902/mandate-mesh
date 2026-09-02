@@ -74,7 +74,7 @@ def test_quote_verification_unauthorized_merchant_blocked(db_session, base_inten
 
     cart, cart_jwt = sign_cart(
         merchant_id="merchant_artisan_03",
-        line_items_req=[{"sku": "CAKE-CHOC-001", "quantity": 1}],
+        line_items_req=[{"sku": "ART-BELG-CHOC-01", "quantity": 1}],
         merchant_private_key_pem=priv_artisan,
         db=db_session,
     )
@@ -371,7 +371,7 @@ def test_route_lowest_total_price_policy(db_session, base_intent):
     priv_sweet = get_merchant_private_key("merchant_sweetdelight_02")
 
     cart_cake, jwt_cake = sign_cart("merchant_cakehouse_01", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_cake, db=db_session)
-    cart_sweet, jwt_sweet = sign_cart("merchant_sweetdelight_02", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_sweet, db=db_session)
+    cart_sweet, jwt_sweet = sign_cart("merchant_sweetdelight_02", [{"sku": "SWT-CHOC-TRF-01", "quantity": 1}], priv_sweet, db=db_session)
 
     quote_cake = MerchantQuote(merchant_id="merchant_cakehouse_01", cart_jwt=jwt_cake, signed_cart=cart_cake, total_paise=cart_cake.total_paise)
     quote_sweet = MerchantQuote(merchant_id="merchant_sweetdelight_02", cart_jwt=jwt_sweet, signed_cart=cart_sweet, total_paise=cart_sweet.total_paise)
@@ -408,7 +408,7 @@ def test_route_lowest_total_price_policy_deterministic_winner(db_session, base_i
     priv_sweet = get_merchant_private_key("merchant_sweetdelight_02")
 
     cart_cake, jwt_cake = sign_cart("merchant_cakehouse_01", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_cake, db=db_session)
-    cart_sweet, jwt_sweet = sign_cart("merchant_sweetdelight_02", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_sweet, db=db_session)
+    cart_sweet, jwt_sweet = sign_cart("merchant_sweetdelight_02", [{"sku": "SWT-CHOC-TRF-01", "quantity": 1}], priv_sweet, db=db_session)
 
     quote_cake = MerchantQuote(merchant_id="merchant_cakehouse_01", cart_jwt=jwt_cake, signed_cart=cart_cake, total_paise=cart_cake.total_paise)
     quote_sweet = MerchantQuote(merchant_id="merchant_sweetdelight_02", cart_jwt=jwt_sweet, signed_cart=cart_sweet, total_paise=cart_sweet.total_paise)
@@ -457,7 +457,7 @@ def test_route_with_fallback_selects_runner_up(db_session, base_intent):
     # Sweet Delight quote created with 5-minute TTL (300s)
     cart_sweet, jwt_sweet = sign_cart(
         merchant_id="merchant_sweetdelight_02",
-        line_items_req=[{"sku": "CAKE-CHOC-001", "quantity": 1}],
+        line_items_req=[{"sku": "SWT-CHOC-TRF-01", "quantity": 1}],
         merchant_private_key_pem=priv_sweet,
         db=db_session,
         ttl_seconds=300,
@@ -587,9 +587,9 @@ def test_price_savings_calculation_semantics(db_session, base_intent):
     intent = base_intent.model_copy(update={"allowed_merchant_ids": ["merchant_cakehouse_01", "merchant_sweetdelight_02", "merchant_artisan_03"]})
 
     # Sweet Delight = ₹890, CakeHouse = ₹940, Artisan = ₹1,200
-    cart_sweet, jwt_sweet = sign_cart("merchant_sweetdelight_02", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_sweet, db=db_session)
+    cart_sweet, jwt_sweet = sign_cart("merchant_sweetdelight_02", [{"sku": "SWT-CHOC-TRF-01", "quantity": 1}], priv_sweet, db=db_session)
     cart_cake, jwt_cake = sign_cart("merchant_cakehouse_01", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_cake, db=db_session)
-    cart_artisan, jwt_artisan = sign_cart("merchant_artisan_03", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_artisan, db=db_session)
+    cart_artisan, jwt_artisan = sign_cart("merchant_artisan_03", [{"sku": "ART-BELG-CHOC-01", "quantity": 1}], priv_artisan, db=db_session)
 
     quote_sweet = MerchantQuote(merchant_id="merchant_sweetdelight_02", cart_jwt=jwt_sweet, signed_cart=cart_sweet, total_paise=cart_sweet.total_paise)
     quote_cake = MerchantQuote(merchant_id="merchant_cakehouse_01", cart_jwt=jwt_cake, signed_cart=cart_cake, total_paise=cart_cake.total_paise)
@@ -624,7 +624,7 @@ def test_route_with_fallback_advances_jit_time_between_candidates(db_session, ba
     priv_sweet = get_merchant_private_key("merchant_sweetdelight_02")
 
     # Sweet Delight expires at T + 300s (5m), CakeHouse expires at T + 1800s (30m)
-    cart_sweet, jwt_sweet = sign_cart("merchant_sweetdelight_02", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_sweet, db=db_session, ttl_seconds=300)
+    cart_sweet, jwt_sweet = sign_cart("merchant_sweetdelight_02", [{"sku": "SWT-CHOC-TRF-01", "quantity": 1}], priv_sweet, db=db_session, ttl_seconds=300)
     cart_cake, jwt_cake = sign_cart("merchant_cakehouse_01", [{"sku": "CAKE-CHOC-001", "quantity": 1}], priv_cake, db=db_session, ttl_seconds=1800)
 
     quote_sweet = MerchantQuote(merchant_id="merchant_sweetdelight_02", cart_jwt=jwt_sweet, signed_cart=cart_sweet, total_paise=cart_sweet.total_paise)

@@ -13,7 +13,7 @@ from app.agent import (
 )
 from app.crypto import issue_intent_jwt
 from app.main import app
-from app.merchant import seed_catalog
+from app.merchant import CANONICAL_CHOCOLATE_CAKE_ID, seed_catalog
 from app.merchant_keys import get_merchant_public_key, get_merchant_private_key
 from app.policy import verify_intent
 from app.schemas import UserIntentCredential
@@ -52,11 +52,11 @@ def test_browse_catalog_tool_returns_merchant_ids(db_session):
 
 
 def test_collect_merchant_quotes_queries_all_merchants(db_session):
-    """collect_merchant_quotes() collects signed carts from all 3 merchants."""
+    """collect_merchant_quotes() collects signed carts from all 3 merchants using canonical product ID."""
     seed_catalog(db_session)
 
     merchants = ["merchant_cakehouse_01", "merchant_sweetdelight_02", "merchant_artisan_03"]
-    req = [{"sku": "CAKE-CHOC-001", "quantity": 1}]
+    req = [{"product_id": CANONICAL_CHOCOLATE_CAKE_ID, "quantity": 1}]
 
     quotes = collect_merchant_quotes(db_session, merchants, req)
     assert len(quotes) == 3

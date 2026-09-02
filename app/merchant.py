@@ -9,20 +9,61 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 from sqlalchemy.orm import Session
 
 from app.crypto import compute_cart_hash, issue_cart_jwt
 from app.errors import CatalogSkuNotFound
 from app.ledger import append_entry
-from app.models import CatalogItem, LedgerEntryType
+from app.models import CanonicalProduct, CatalogItem, LedgerEntryType
 from app.schemas import CartLineItem, MerchantSignedCart
 
+# Curated Canonical Product IDs for demo/testing
+CANONICAL_CHOCOLATE_CAKE_ID = UUID("11111111-1111-1111-1111-111111111111")
+CANONICAL_VANILLA_CAKE_ID = UUID("22222222-2222-2222-2222-222222222222")
+CANONICAL_GREETING_CARD_ID = UUID("33333333-3333-3333-3333-333333333333")
+CANONICAL_MACARONS_ID = UUID("44444444-4444-4444-4444-444444444444")
+
+DEMO_CANONICAL_PRODUCTS: list[dict[str, Any]] = [
+    {
+        "product_id": CANONICAL_CHOCOLATE_CAKE_ID,
+        "canonical_name": "Chocolate Truffle Cake (1kg)",
+        "brand": "CakeHouse Artisans",
+        "category": "bakery",
+        "tags": ["cake", "chocolate", "truffle", "dessert", "bakery"],
+        "description": "Rich dark chocolate sponge layered with Belgian truffle ganache.",
+    },
+    {
+        "product_id": CANONICAL_VANILLA_CAKE_ID,
+        "canonical_name": "Classic Vanilla Bean Cake (1kg)",
+        "brand": "Sweet Delights",
+        "category": "bakery",
+        "tags": ["cake", "vanilla", "dessert", "bakery"],
+        "description": "Fluffy Madagascar vanilla sponge with buttercream frosting.",
+    },
+    {
+        "product_id": CANONICAL_GREETING_CARD_ID,
+        "canonical_name": "Celebration Greeting Card & Candles",
+        "brand": "PartyCraft",
+        "category": "gifting",
+        "tags": ["card", "candles", "gifting", "celebration"],
+        "description": "Handmade birthday card with premium sparkling candles.",
+    },
+    {
+        "product_id": CANONICAL_MACARONS_ID,
+        "canonical_name": "Parisian Macarons Box (Pack of 6)",
+        "brand": "Artisan Patisserie",
+        "category": "bakery",
+        "tags": ["macarons", "french", "dessert", "bakery"],
+        "description": "Assorted delicate almond macarons with gourmet ganache.",
+    },
+]
 
 DEMO_CATALOGS: dict[str, list[dict[str, Any]]] = {
     "merchant_cakehouse_01": [
         {
             "sku": "CAKE-CHOC-001",
+            "product_id": CANONICAL_CHOCOLATE_CAKE_ID,
             "name": "Chocolate Truffle Cake (1kg)",
             "description": "Rich dark chocolate sponge layered with Belgian truffle ganache.",
             "category": "bakery",
@@ -31,6 +72,7 @@ DEMO_CATALOGS: dict[str, list[dict[str, Any]]] = {
         },
         {
             "sku": "CAKE-VAN-001",
+            "product_id": CANONICAL_VANILLA_CAKE_ID,
             "name": "Classic Vanilla Bean Cake (1kg)",
             "description": "Fluffy Madagascar vanilla sponge with buttercream frosting.",
             "category": "bakery",
@@ -39,6 +81,7 @@ DEMO_CATALOGS: dict[str, list[dict[str, Any]]] = {
         },
         {
             "sku": "CAKE-PREM-001",
+            "product_id": None,  # Unmapped inventory
             "name": "Luxury 3-Tier Fondant Cake (3kg)",
             "description": "Gourmet multi-tier celebration cake with gold leaf detailing.",
             "category": "bakery",
@@ -47,6 +90,7 @@ DEMO_CATALOGS: dict[str, list[dict[str, Any]]] = {
         },
         {
             "sku": "GIFT-CARD-001",
+            "product_id": CANONICAL_GREETING_CARD_ID,
             "name": "Celebration Greeting Card & Candles",
             "description": "Handmade birthday card with premium sparkling candles.",
             "category": "gifting",
@@ -55,6 +99,7 @@ DEMO_CATALOGS: dict[str, list[dict[str, Any]]] = {
         },
         {
             "sku": "ELEC-HEAD-001",
+            "product_id": None,  # Unmapped inventory
             "name": "Wireless Noise Cancelling Headphones",
             "description": "Over-ear bluetooth headphones with spatial audio.",
             "category": "electronics",  # Disallowed category for bakery intent
@@ -64,7 +109,8 @@ DEMO_CATALOGS: dict[str, list[dict[str, Any]]] = {
     ],
     "merchant_sweetdelight_02": [
         {
-            "sku": "CAKE-CHOC-001",
+            "sku": "SWT-CHOC-TRF-01",  # Deliberately different merchant SKU for canonical chocolate cake
+            "product_id": CANONICAL_CHOCOLATE_CAKE_ID,
             "name": "Chocolate Truffle Cake (1kg)",
             "description": "Delicious chocolate truffle cake with rich cocoa frosting.",
             "category": "bakery",
@@ -72,7 +118,8 @@ DEMO_CATALOGS: dict[str, list[dict[str, Any]]] = {
             "in_stock": True,
         },
         {
-            "sku": "CAKE-VAN-001",
+            "sku": "SWT-VAN-001",  # Deliberately different merchant SKU for canonical vanilla cake
+            "product_id": CANONICAL_VANILLA_CAKE_ID,
             "name": "Classic Vanilla Bean Cake (1kg)",
             "description": "Light and fluffy vanilla sponge cake with fresh whipped cream.",
             "category": "bakery",
@@ -81,6 +128,7 @@ DEMO_CATALOGS: dict[str, list[dict[str, Any]]] = {
         },
         {
             "sku": "CAKE-BUTTER-001",
+            "product_id": None,  # Unmapped inventory
             "name": "Butterscotch Crunch Cake (1kg)",
             "description": "Caramel sponge loaded with crunchy butterscotch praline.",
             "category": "bakery",
@@ -88,7 +136,8 @@ DEMO_CATALOGS: dict[str, list[dict[str, Any]]] = {
             "in_stock": True,
         },
         {
-            "sku": "GIFT-CARD-001",
+            "sku": "SWT-GIFT-001",  # Deliberately different merchant SKU for canonical greeting card
+            "product_id": CANONICAL_GREETING_CARD_ID,
             "name": "Party Candle Set & Greeting Card",
             "description": "Assorted glitter candles with celebration greeting card.",
             "category": "gifting",
@@ -97,6 +146,7 @@ DEMO_CATALOGS: dict[str, list[dict[str, Any]]] = {
         },
         {
             "sku": "ELEC-POWER-001",
+            "product_id": None,  # Unmapped inventory
             "name": "10000mAh Compact Power Bank",
             "description": "Fast-charging dual USB portable power bank.",
             "category": "electronics",
@@ -106,7 +156,8 @@ DEMO_CATALOGS: dict[str, list[dict[str, Any]]] = {
     ],
     "merchant_artisan_03": [
         {
-            "sku": "CAKE-CHOC-001",
+            "sku": "ART-BELG-CHOC-01",  # Deliberately different merchant SKU for canonical chocolate cake
+            "product_id": CANONICAL_CHOCOLATE_CAKE_ID,
             "name": "Artisanal Belgian Dark Truffle Cake (1kg)",
             "description": "Handcrafted single-origin 70% dark chocolate gateau.",
             "category": "bakery",
@@ -115,6 +166,7 @@ DEMO_CATALOGS: dict[str, list[dict[str, Any]]] = {
         },
         {
             "sku": "BAKE-SOUR-001",
+            "product_id": None,  # Unmapped inventory
             "name": "Artisanal Rustic Sourdough Loaf (500g)",
             "description": "Naturally fermented 36-hour slow proofed country sourdough.",
             "category": "bakery",
@@ -123,6 +175,7 @@ DEMO_CATALOGS: dict[str, list[dict[str, Any]]] = {
         },
         {
             "sku": "BAKE-MAC-001",
+            "product_id": CANONICAL_MACARONS_ID,
             "name": "Parisian Macarons Box (Pack of 6)",
             "description": "Assorted delicate almond macarons with gourmet ganache.",
             "category": "bakery",
@@ -131,6 +184,7 @@ DEMO_CATALOGS: dict[str, list[dict[str, Any]]] = {
         },
         {
             "sku": "GIFT-BOX-001",
+            "product_id": None,  # Unmapped inventory
             "name": "Luxury Wooden Gift Box with Silk Ribbon",
             "description": "Handcrafted pine wood gift box with customized note.",
             "category": "gifting",
@@ -145,7 +199,7 @@ def seed_catalog(
     db: Session,
     merchant_id: str | None = None,
 ) -> list[CatalogItem]:
-    """Pre-seeds standard merchant inventory items in PostgreSQL/SQLite if not present.
+    """Pre-seeds standard canonical products and merchant inventory items in PostgreSQL/SQLite.
 
     Args:
         db: Active SQLAlchemy database session.
@@ -154,6 +208,26 @@ def seed_catalog(
     Returns:
         list[CatalogItem]: The seeded or existing catalog item rows.
     """
+    # 1. Seed CanonicalProducts if not present
+    for cp_data in DEMO_CANONICAL_PRODUCTS:
+        existing_cp = (
+            db.query(CanonicalProduct)
+            .filter_by(product_id=cp_data["product_id"])
+            .first()
+        )
+        if not existing_cp:
+            cp = CanonicalProduct(
+                product_id=cp_data["product_id"],
+                canonical_name=cp_data["canonical_name"],
+                brand=cp_data["brand"],
+                category=cp_data["category"],
+                tags=cp_data["tags"],
+                description=cp_data["description"],
+            )
+            db.add(cp)
+    db.flush()
+
+    # 2. Seed CatalogItems
     targets = [merchant_id] if merchant_id else list(DEMO_CATALOGS.keys())
     seeded: list[CatalogItem] = []
 
@@ -171,6 +245,7 @@ def seed_catalog(
                 item = CatalogItem(
                     merchant_id=mid,
                     sku=item_data["sku"],
+                    product_id=item_data.get("product_id"),
                     name=item_data["name"],
                     description=item_data["description"],
                     category=item_data["category"],
@@ -180,6 +255,8 @@ def seed_catalog(
                 db.add(item)
                 seeded.append(item)
             else:
+                if existing.product_id != item_data.get("product_id"):
+                    existing.product_id = item_data.get("product_id")
                 seeded.append(existing)
 
     db.flush()

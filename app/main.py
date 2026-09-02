@@ -18,6 +18,7 @@ from app.api.deps import KEYS_DIR
 from app.api.intent import router as intent_router
 from app.api.ledger_routes import router as ledger_router
 from app.api.mandates import router as mandates_router
+from app.api.products import router as products_router
 from app.api.webhooks import router as webhooks_router
 from app.config import settings
 from app.crypto import generate_es256_keypair
@@ -168,6 +169,7 @@ app.include_router(webhooks_router)
 app.include_router(ledger_router)
 app.include_router(agent_router)
 app.include_router(demo_router)
+app.include_router(products_router)
 
 
 @app.get("/healthz", tags=["System"])

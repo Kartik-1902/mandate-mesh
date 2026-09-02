@@ -2,11 +2,13 @@
 
 import enum
 from datetime import datetime
+from uuid import UUID, uuid4
 from sqlalchemy import (
     BigInteger,
     Boolean,
     DateTime,
     Enum,
+    ForeignKey,
     Integer,
     JSON,
     String,
@@ -14,7 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 
@@ -163,6 +165,25 @@ class WebhookEvent(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class CanonicalProduct(Base):
+    """Universal platform definition of a product (Milestone M4 / ADR-007)."""
+    __tablename__ = "canonical_products"
+
+    product_id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    canonical_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    brand: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    category: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    tags: Mapped[dict | list] = mapped_column(JSON, default=list, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    catalog_items: Mapped[list["CatalogItem"]] = relationship(
+        "CatalogItem", back_populates="product", cascade="all, delete-orphan"
+    )
+
+
 class CatalogItem(Base):
     """Authoritative merchant product catalog in PostgreSQL."""
     __tablename__ = "catalog_items"
@@ -171,6 +192,9 @@ class CatalogItem(Base):
     )
 
     id: Mapped[int] = mapped_column(PK_BIGINT, primary_key=True, autoincrement=True)
+    product_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("canonical_products.product_id"), nullable=True, index=True
+    )
     merchant_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     sku: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -181,3 +205,8 @@ class CatalogItem(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+    product: Mapped[CanonicalProduct | None] = relationship(
+        "CanonicalProduct", back_populates="catalog_items"
+    )
+

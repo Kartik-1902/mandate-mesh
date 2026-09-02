@@ -430,7 +430,7 @@ def test_attack_5_cross_merchant_signature_spoofing_blocked(db_session, test_key
     # Legitimate Sweet Delight cart signed with Sweet Delight's key
     cart, cart_jwt = sign_cart(
         merchant_id="merchant_sweetdelight_02",
-        line_items_req=[{"sku": "CAKE-CHOC-001", "quantity": 1}],
+        line_items_req=[{"sku": "SWT-CHOC-TRF-01", "quantity": 1}],
         merchant_private_key_pem=sweet_priv,
         db=db_session,
     )

@@ -76,7 +76,7 @@ def test_seed_catalog_multi_merchant_isolation(db_session):
 
 
 def test_sign_cart_merchant_catalog_pricing_isolation(db_session):
-    """Each merchant authoritatively prices the exact same SKU (CAKE-CHOC-001) from their own catalog."""
+    """Each merchant authoritatively prices items from their own catalog using their merchant-local SKU."""
     from app.merchant_keys import get_merchant_private_key
 
     seed_catalog(db_session)
@@ -95,7 +95,7 @@ def test_sign_cart_merchant_catalog_pricing_isolation(db_session):
     priv_sweet = get_merchant_private_key("merchant_sweetdelight_02")
     cart_sweet, _ = sign_cart(
         merchant_id="merchant_sweetdelight_02",
-        line_items_req=[{"sku": "CAKE-CHOC-001", "quantity": 1}],
+        line_items_req=[{"sku": "SWT-CHOC-TRF-01", "quantity": 1}],
         merchant_private_key_pem=priv_sweet,
         db=db_session,
     )
@@ -105,7 +105,7 @@ def test_sign_cart_merchant_catalog_pricing_isolation(db_session):
     priv_artisan = get_merchant_private_key("merchant_artisan_03")
     cart_artisan, _ = sign_cart(
         merchant_id="merchant_artisan_03",
-        line_items_req=[{"sku": "CAKE-CHOC-001", "quantity": 1}],
+        line_items_req=[{"sku": "ART-BELG-CHOC-01", "quantity": 1}],
         merchant_private_key_pem=priv_artisan,
         db=db_session,
     )
