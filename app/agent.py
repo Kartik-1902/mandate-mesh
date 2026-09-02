@@ -342,9 +342,12 @@ class BuyerAgentState(TypedDict):
 
 
 def parse_goal_node(state: BuyerAgentState) -> dict[str, Any]:
-    """Node 1: Parses natural language goal into structured purchase criteria."""
+    """Node 1: Deterministic natural language purchase goal parser.
+
+    Extracts keywords, category, and budget ceiling from user goal without LLM invocation.
+    Per Milestone M5 boundary, the request flow uses exactly ONE LLM call during deliberate_and_route.
+    """
     goal_text = state.get("goal", "")
-    api_key = settings.GEMINI_API_KEY or settings.GOOGLE_API_KEY
 
     parsed: dict[str, Any] = {
         "keywords": [],
@@ -352,34 +355,7 @@ def parse_goal_node(state: BuyerAgentState) -> dict[str, Any]:
         "max_budget_paise": None,
     }
 
-    # 1. Live Gemini Parsing if API Key configured
-    if api_key:
-        prompt = (
-            f"You are an e-commerce purchasing intent parser for Mandate Mesh.\n"
-            f"User Goal: '{goal_text}'\n\n"
-            f"Extract search keywords and category. Known merchant categories: 'bakery', 'gifting'. If unsure, set category to null.\n"
-            f"Extract the user's budget ceiling if specified in any phrasing (e.g. 'under 800', 'at 800', 'price 200', 'for 500', 'costing 1000', 'Rs. 800', 'INR 800', '₹800').\n"
-            f"Respond ONLY with a JSON object in this exact format (no markdown, no other text):\n"
-            f'{{"category": "bakery", "keywords": ["keyword1", "keyword2"], "max_budget_paise": 150000}}\n'
-            f"Note: 1 Rupee = 100 paise. If no budget is specified, set max_budget_paise to null."
-        )
-        llm_response = call_gemini_llm(prompt, api_key)
-        if llm_response:
-            try:
-                clean_json = re.sub(r"^```(?:json)?\s*|\s*```$", "", llm_response.strip(), flags=re.MULTILINE)
-                llm_parsed = json.loads(clean_json)
-                if isinstance(llm_parsed, dict):
-                    if llm_parsed.get("category"):
-                        parsed["category"] = str(llm_parsed["category"]).lower()
-                    if isinstance(llm_parsed.get("keywords"), list):
-                        parsed["keywords"] = [str(k) for k in llm_parsed["keywords"]]
-                    if llm_parsed.get("max_budget_paise"):
-                        parsed["max_budget_paise"] = int(llm_parsed["max_budget_paise"])
-                    return {"parsed_intent": parsed}
-            except Exception:
-                pass
-
-    # 2. Heuristic fallback (offline / CI)
+    # Deterministic NLP regex extraction
     range_match = re.search(r"between\s*(?:rs\.?|inr|₹)?\s*(\d+)\s*(?:to|and|-)\s*(?:rs\.?|inr|₹)?\s*(\d+)", goal_text, re.IGNORECASE)
     if range_match:
         parsed["max_budget_paise"] = int(range_match.group(2)) * 100
@@ -457,11 +433,130 @@ def browse_catalog_node_factory(db: Session) -> Callable[[BuyerAgentState], dict
     return browse_catalog_node
 
 
+# =============================================================================
+# 3. Deterministic Commerce Orchestrator (Milestone M5)
+# =============================================================================
+
+class CommerceOrchestrator:
+    """Deterministic Commerce Orchestrator.
+
+    Strict Architectural Boundary (M5):
+      - The LLM proposes canonical items; deterministic Python executes commerce logic.
+      - The LLM never touches prices, quotes, merchant discovery, or SKU mapping.
+    
+    Responsibilities owned by CommerceOrchestrator:
+      1. Canonical product to merchant inventory lookup
+      2. Merchant discovery across candidate merchants
+      3. Merchant-local SKU resolution (via CatalogItem.product_id)
+      4. Authoritative pricing & cryptographic quote solicitation
+      5. 7-gate cryptographic and policy verification
+      6. Basket allocation, totals calculation, and price savings
+      7. Policy authorization and escalation detection
+    """
+
+    def __init__(
+        self,
+        db: Session,
+        merchant_private_key_pem: bytes | str | Path | None = None,
+    ):
+        self.db = db
+        self.merchant_private_key_pem = merchant_private_key_pem
+
+    def orchestrate(
+        self,
+        proposed_items: list[dict[str, Any]],
+        intent: UserIntentCredential | None = None,
+        allowed_merchant_ids: list[str] | None = None,
+        spend_cap_paise: int = 150000,
+        policy: OptimizationPolicy = OptimizationPolicy.LOWEST_TOTAL_PRICE,
+    ) -> dict[str, Any]:
+        """Executes deterministic commerce logic from proposed canonical products."""
+        merchants = allowed_merchant_ids or (intent.allowed_merchant_ids if intent else list_known_merchant_ids())
+        cap = intent.spend_cap_paise if intent else spend_cap_paise
+
+        # 1. Merchant discovery & merchant-local SKU resolution + authoritative quote collection
+        solicited_quotes = collect_merchant_quotes(
+            db=self.db,
+            allowed_merchant_ids=merchants,
+            proposed_items=proposed_items,
+            key_override_pem=self.merchant_private_key_pem,
+        )
+
+        # 2. Deterministic 7-Gate Verification & Optimization Routing
+        intent_obj = intent
+        if not intent_obj:
+            now = datetime.now(timezone.utc)
+            intent_obj = UserIntentCredential(
+                user_id="user_agent_deliberation",
+                spend_cap_paise=cap,
+                currency="INR",
+                allowed_categories=["bakery", "gifting", "electronics"],
+                allowed_merchant_ids=merchants,
+                nonce=f"nonce_agent_{uuid4().hex}",
+                not_before=now - timedelta(minutes=5),
+                expires_at=now + timedelta(hours=1),
+            )
+
+        decision = route(
+            quotes=solicited_quotes,
+            intent=intent_obj,
+            policy=policy,
+            db=self.db,
+        )
+        verified_quotes = decision.quotes
+        winner_quote = decision.winner_quote
+
+        # 3. Deterministic budget evaluation and escalation detection
+        priced_quotes = [q for q in verified_quotes if q.signed_cart and q.total_paise > 0]
+        escalation_details = None
+        cheapest_quote = None
+
+        if winner_quote:
+            status = "COMPLETED"
+            active_quote = winner_quote
+        elif priced_quotes:
+            status = "REQUIRES_USER_APPROVAL"
+            cheapest_quote = min(priced_quotes, key=lambda q: q.total_paise)
+            overspend_paise = max(0, cheapest_quote.total_paise - cap)
+            escalation_details = {
+                "suggested_total_paise": cheapest_quote.total_paise,
+                "current_budget_paise": cap,
+                "overspend_paise": overspend_paise,
+                "message": (
+                    f"Lowest quote from {cheapest_quote.merchant_id} is Rs. {cheapest_quote.total_paise / 100:.2f}, "
+                    f"which exceeds your Rs. {cap / 100:.2f} budget by Rs. {overspend_paise / 100:.2f}. "
+                    f"User re-authorization required."
+                ),
+            }
+            active_quote = cheapest_quote
+        else:
+            status = "NO_CANDIDATE_MATCH"
+            active_quote = None
+
+        selected_sku = (
+            active_quote.signed_cart.line_items[0].sku
+            if (active_quote and active_quote.signed_cart and active_quote.signed_cart.line_items)
+            else None
+        )
+
+        return {
+            "selected_sku": selected_sku,
+            "signed_cart": active_quote.signed_cart if active_quote else None,
+            "cart_jwt": active_quote.cart_jwt if active_quote else None,
+            "all_quotes": verified_quotes,
+            "routing_decision": decision,
+            "status": status,
+            "escalation_details": escalation_details,
+        }
+
+
 def deliberate_and_route_node_factory(
     db: Session,
     merchant_private_key_pem: bytes | str | Path | None = None,
 ) -> Callable[[BuyerAgentState], dict[str, Any]]:
-    """Node 3 Factory: Selects items, solicits multi-merchant quotes, and classifies quotes."""
+    """Node 3 Factory: Selects canonical items via exactly one LLM call, then delegates to CommerceOrchestrator."""
+    orchestrator = CommerceOrchestrator(db=db, merchant_private_key_pem=merchant_private_key_pem)
+
     def deliberate_and_route_node(state: BuyerAgentState) -> dict[str, Any]:
         candidates = state.get("catalog_candidates", [])
         if not candidates:
@@ -482,7 +577,8 @@ def deliberate_and_route_node_factory(
         max_budget = parsed_intent.get("max_budget_paise")
         spend_cap = max_budget if max_budget is not None else state.get("spend_cap_paise", 150000)
 
-        # 1. Live Gemini Deliberation if API Key configured (LLM Blindness: Only Canonical Product Attributes)
+        # 1. Live Gemini Deliberation: EXACTLY ONE LLM call for intent & canonical product selection
+        # (LLM Blindness: Only Canonical Product Attributes; strictly NO merchant_id, SKU, or prices)
         if api_key and candidates:
             catalog_summary = "\n".join([
                 f"- Product ID: {c['product_id']} | Name: {c['canonical_name']} | Brand: {c.get('brand') or 'N/A'} | Category: {c['category']} | Description: {c.get('description') or ''}"
@@ -517,7 +613,7 @@ def deliberate_and_route_node_factory(
                 except Exception:
                     pass
 
-        # 2. Fallback heuristic
+        # 2. Deterministic Fallback Heuristic (Zero LLM calls)
         if not proposed_items:
             if state.get("proposed_items"):
                 proposed_items = state["proposed_items"]
@@ -531,88 +627,31 @@ def deliberate_and_route_node_factory(
                 proposed_items = [{"product_id": chosen["product_id"], "quantity": qty}]
 
         primary_qty = proposed_items[0]["quantity"] if proposed_items else 1
-
         allowed_merchants = state.get("allowed_merchant_ids") or list_known_merchant_ids()
 
-        # 3. Solicit quotes from all authorized candidate merchants
-        solicited_quotes = collect_merchant_quotes(
-            db=db,
-            allowed_merchant_ids=allowed_merchants,
+        # 3. Hand off to Deterministic Commerce Orchestrator
+        orchestration_result = orchestrator.orchestrate(
             proposed_items=proposed_items,
-            key_override_pem=merchant_private_key_pem,
-        )
-
-        # 4. Deterministic 7-Gate Verification
-        intent_obj = state.get("intent")
-        if not intent_obj:
-            now = datetime.now(timezone.utc)
-            intent_obj = UserIntentCredential(
-                user_id="user_agent_deliberation",
-                spend_cap_paise=spend_cap,
-                currency="INR",
-                allowed_categories=["bakery", "gifting", "electronics"],
-                allowed_merchant_ids=allowed_merchants,
-                nonce=f"nonce_agent_{uuid4().hex}",
-                not_before=now - timedelta(minutes=5),
-                expires_at=now + timedelta(hours=1),
-            )
-
-        # 4 & 5. Deterministic Optimization & Routing
-        decision = route(
-            quotes=solicited_quotes,
-            intent=intent_obj,
-            policy=OptimizationPolicy.LOWEST_TOTAL_PRICE,
-            db=db,
-        )
-        verified_quotes = decision.quotes
-        winner_quote = decision.winner_quote
-
-        # 6. Check for budget escalation if no eligible winner exists but quotes are available
-        priced_quotes = [q for q in verified_quotes if q.signed_cart and q.total_paise > 0]
-        escalation_details = None
-        cheapest_quote = None
-
-        if winner_quote:
-            status = "COMPLETED"
-            active_quote = winner_quote
-        elif priced_quotes:
-            status = "REQUIRES_USER_APPROVAL"
-            cheapest_quote = min(priced_quotes, key=lambda q: q.total_paise)
-            overspend_paise = max(0, cheapest_quote.total_paise - spend_cap)
-            escalation_details = {
-                "suggested_total_paise": cheapest_quote.total_paise,
-                "current_budget_paise": spend_cap,
-                "overspend_paise": overspend_paise,
-                "message": (
-                    f"Lowest quote from {cheapest_quote.merchant_id} is Rs. {cheapest_quote.total_paise / 100:.2f}, "
-                    f"which exceeds your Rs. {spend_cap / 100:.2f} budget by Rs. {overspend_paise / 100:.2f}. "
-                    f"User re-authorization required."
-                ),
-            }
-            active_quote = cheapest_quote
-        else:
-            status = "NO_CANDIDATE_MATCH"
-            active_quote = None
-
-        selected_sku = (
-            active_quote.signed_cart.line_items[0].sku
-            if (active_quote and active_quote.signed_cart and active_quote.signed_cart.line_items)
-            else None
+            intent=state.get("intent"),
+            allowed_merchant_ids=allowed_merchants,
+            spend_cap_paise=spend_cap,
         )
 
         return {
             "proposed_items": proposed_items,
-            "selected_sku": selected_sku,
+            "selected_sku": orchestration_result["selected_sku"],
             "quantity": primary_qty,
-            "signed_cart": active_quote.signed_cart if active_quote else None,
-            "cart_jwt": active_quote.cart_jwt if active_quote else None,
-            "all_quotes": verified_quotes,
-            "routing_decision": decision,
+            "signed_cart": orchestration_result["signed_cart"],
+            "cart_jwt": orchestration_result["cart_jwt"],
+            "all_quotes": orchestration_result["all_quotes"],
+            "routing_decision": orchestration_result["routing_decision"],
             "llm_reasoning": llm_reasoning,
-            "status": status,
-            "escalation_details": escalation_details,
+            "status": orchestration_result["status"],
+            "escalation_details": orchestration_result["escalation_details"],
             "error": None,
         }
+
+    return deliberate_and_route_node
 
     return deliberate_and_route_node
 
