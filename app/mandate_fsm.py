@@ -8,13 +8,13 @@ Legal Transitions:
 - RESERVED -> ORDER_CREATING
 - ORDER_CREATING -> ORDER_CREATED
 - ORDER_CREATING -> RESERVED (recoverable failure during Razorpay order creation)
+- ORDER_CREATING -> RELEASED (unrecoverable order creation failure/abandonment)
 - ORDER_CREATED -> PAYMENT_PENDING
 - ORDER_CREATED -> PAYMENT_CAPTURED (terminal capture confirmed by webhook)
 - ORDER_CREATED -> PAYMENT_FAILED (webhook reports payment failure)
-- ORDER_CREATED -> RELEASED (timeout/release)
+- ORDER_CREATED -> EXPIRED (order TTL exceeded at gateway)
 - PAYMENT_PENDING -> PAYMENT_CAPTURED (terminal capture confirmed by webhook)
 - PAYMENT_PENDING -> PAYMENT_FAILED (webhook reports payment failure)
-- PAYMENT_PENDING -> RELEASED (timeout/release)
 - PAYMENT_FAILED -> RELEASED (terminal: reservation returned to available budget)
 - EXPIRED -> RELEASED (terminal: reservation returned to available budget)
 
@@ -34,22 +34,21 @@ from app.models import MandateRecord, MandateStatus
 ALLOWED_TRANSITIONS: Final[dict[MandateStatus, set[MandateStatus]]] = {
     MandateStatus.RESERVED: {
         MandateStatus.ORDER_CREATING,
-        MandateStatus.RELEASED,
     },
     MandateStatus.ORDER_CREATING: {
         MandateStatus.ORDER_CREATED,
         MandateStatus.RESERVED,
+        MandateStatus.RELEASED,
     },
     MandateStatus.ORDER_CREATED: {
         MandateStatus.PAYMENT_PENDING,
         MandateStatus.PAYMENT_CAPTURED,
         MandateStatus.PAYMENT_FAILED,
-        MandateStatus.RELEASED,
+        MandateStatus.EXPIRED,
     },
     MandateStatus.PAYMENT_PENDING: {
         MandateStatus.PAYMENT_CAPTURED,
         MandateStatus.PAYMENT_FAILED,
-        MandateStatus.RELEASED,
     },
     MandateStatus.PAYMENT_FAILED: {
         MandateStatus.RELEASED,

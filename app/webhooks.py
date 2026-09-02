@@ -163,7 +163,6 @@ def process_payment_webhook(
         # 8. Mandate State Check
         valid_pre_capture_states = (
             MandateStatus.ORDER_CREATED,
-            MandateStatus.ORDER_CREATING,
             MandateStatus.PAYMENT_PENDING,
         )
         if mandate_record.status not in valid_pre_capture_states:

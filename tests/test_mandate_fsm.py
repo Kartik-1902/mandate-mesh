@@ -33,16 +33,15 @@ def _create_mock_record(initial_status: MandateStatus = MandateStatus.RESERVED) 
     ("from_status", "to_status"),
     [
         (MandateStatus.RESERVED, MandateStatus.ORDER_CREATING),
-        (MandateStatus.RESERVED, MandateStatus.RELEASED),
         (MandateStatus.ORDER_CREATING, MandateStatus.ORDER_CREATED),
         (MandateStatus.ORDER_CREATING, MandateStatus.RESERVED),
+        (MandateStatus.ORDER_CREATING, MandateStatus.RELEASED),
         (MandateStatus.ORDER_CREATED, MandateStatus.PAYMENT_PENDING),
         (MandateStatus.ORDER_CREATED, MandateStatus.PAYMENT_CAPTURED),
         (MandateStatus.ORDER_CREATED, MandateStatus.PAYMENT_FAILED),
-        (MandateStatus.ORDER_CREATED, MandateStatus.RELEASED),
+        (MandateStatus.ORDER_CREATED, MandateStatus.EXPIRED),
         (MandateStatus.PAYMENT_PENDING, MandateStatus.PAYMENT_CAPTURED),
         (MandateStatus.PAYMENT_PENDING, MandateStatus.PAYMENT_FAILED),
-        (MandateStatus.PAYMENT_PENDING, MandateStatus.RELEASED),
         (MandateStatus.PAYMENT_FAILED, MandateStatus.RELEASED),
         (MandateStatus.EXPIRED, MandateStatus.RELEASED),
     ],
@@ -72,27 +71,43 @@ def test_all_legal_transitions_succeed(from_status, to_status):
         (MandateStatus.RELEASED, MandateStatus.ORDER_CREATED),
         (MandateStatus.RELEASED, MandateStatus.PAYMENT_CAPTURED),
         (MandateStatus.RELEASED, MandateStatus.PAYMENT_PENDING),
+        (MandateStatus.RELEASED, MandateStatus.EXPIRED),
+        # Removed / illegal transitions to RELEASED
+        (MandateStatus.RESERVED, MandateStatus.RELEASED),
+        (MandateStatus.ORDER_CREATED, MandateStatus.RELEASED),
+        (MandateStatus.PAYMENT_PENDING, MandateStatus.RELEASED),
         # Skipping intermediate steps is forbidden
         (MandateStatus.RESERVED, MandateStatus.ORDER_CREATED),
         (MandateStatus.RESERVED, MandateStatus.PAYMENT_PENDING),
         (MandateStatus.RESERVED, MandateStatus.PAYMENT_CAPTURED),
         (MandateStatus.RESERVED, MandateStatus.PAYMENT_FAILED),
+        (MandateStatus.RESERVED, MandateStatus.EXPIRED),
         (MandateStatus.ORDER_CREATING, MandateStatus.PAYMENT_CAPTURED),
         (MandateStatus.ORDER_CREATING, MandateStatus.PAYMENT_PENDING),
         (MandateStatus.ORDER_CREATING, MandateStatus.PAYMENT_FAILED),
-        # Backwards transitions from ORDER_CREATED (except through reconciler RESERVED)
+        (MandateStatus.ORDER_CREATING, MandateStatus.EXPIRED),
+        # Backwards transitions from ORDER_CREATED
         (MandateStatus.ORDER_CREATED, MandateStatus.ORDER_CREATING),
         (MandateStatus.ORDER_CREATED, MandateStatus.RESERVED),
         # Backwards transitions from PAYMENT_PENDING
         (MandateStatus.PAYMENT_PENDING, MandateStatus.ORDER_CREATING),
         (MandateStatus.PAYMENT_PENDING, MandateStatus.ORDER_CREATED),
         (MandateStatus.PAYMENT_PENDING, MandateStatus.RESERVED),
+        (MandateStatus.PAYMENT_PENDING, MandateStatus.EXPIRED),
         # Backwards transitions from PAYMENT_FAILED
         (MandateStatus.PAYMENT_FAILED, MandateStatus.ORDER_CREATING),
         (MandateStatus.PAYMENT_FAILED, MandateStatus.ORDER_CREATED),
         (MandateStatus.PAYMENT_FAILED, MandateStatus.PAYMENT_PENDING),
         (MandateStatus.PAYMENT_FAILED, MandateStatus.PAYMENT_CAPTURED),
         (MandateStatus.PAYMENT_FAILED, MandateStatus.RESERVED),
+        (MandateStatus.PAYMENT_FAILED, MandateStatus.EXPIRED),
+        # Backwards transitions from EXPIRED
+        (MandateStatus.EXPIRED, MandateStatus.RESERVED),
+        (MandateStatus.EXPIRED, MandateStatus.ORDER_CREATING),
+        (MandateStatus.EXPIRED, MandateStatus.ORDER_CREATED),
+        (MandateStatus.EXPIRED, MandateStatus.PAYMENT_PENDING),
+        (MandateStatus.EXPIRED, MandateStatus.PAYMENT_CAPTURED),
+        (MandateStatus.EXPIRED, MandateStatus.PAYMENT_FAILED),
     ],
 )
 def test_illegal_transitions_raise_policy_violation(from_status, to_status):
