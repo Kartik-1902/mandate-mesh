@@ -16,7 +16,7 @@ from app.api.deps import (
     get_user_private_key_pem,
     get_user_public_key_pem,
 )
-from app.crypto import issue_intent_jwt
+from app.crypto import extract_unverified_cart_merchant_id, issue_intent_jwt
 from app.merchant_keys import get_merchant_public_key, list_known_merchant_ids
 from app.models import MandateRecord, MandateStatus
 from app.policy import authorize_mandate, verify_intent
@@ -213,8 +213,10 @@ def deliberate_goal(
                     "status": record.status.value,
                 }
                 razorpay_order_id = rzp_order["id"]
-            except Exception:
+            except Exception as e:
                 status = "POLICY_REJECTED"
+                if not res.get("error"):
+                    res["error"] = str(e)
 
     signed_cart_dict = None
     if signed_cart:
@@ -254,10 +256,7 @@ def escalate_and_pay(
     # Dynamically extract merchant_id from signed cart claims or fallback to request
     merchant_id = req.merchant_id
     try:
-        import jwt
-        unverified = jwt.decode(req.cart_jwt, options={"verify_signature": False})
-        if unverified.get("merchant_id"):
-            merchant_id = unverified["merchant_id"]
+        merchant_id = extract_unverified_cart_merchant_id(req.cart_jwt)
     except Exception:
         pass
 

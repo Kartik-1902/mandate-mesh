@@ -378,6 +378,8 @@ def test_policy_cart_hash_mismatch_blocked(db_session, user_keys, merchant_keys,
 def test_concurrent_reservations_cannot_overspend(db_session, engine, user_keys, merchant_keys, platform_keys):
     """Multi-threaded concurrency test: Two concurrent ₹940 reservations against a ₹1,500 cap.
     Guarantees exactly ONE succeeds and ONE fails (never overspends the cap)."""
+    if engine.dialect.name == "sqlite":
+        pytest.skip("SQLite does not support row-level SELECT FOR UPDATE; concurrency guarantees apply to PostgreSQL.")
     import concurrent.futures
     SessionLocal = sessionmaker(bind=engine)
 

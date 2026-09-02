@@ -396,6 +396,15 @@ def extract_unverified_cart_merchant_id(token: str) -> str:
     return merchant_id
 
 
+def extract_mandate_intent_hash(token: str) -> str:
+    """Extracts intent_hash claim from platform-signed mandate JWT without signature verification."""
+    try:
+        claims = jwt.decode(token, options={"verify_signature": False})
+        return str(claims.get("intent_hash", ""))
+    except Exception as e:
+        raise PolicyViolation("POLICY_MANDATE_MALFORMED", f"Failed to extract intent_hash from mandate JWT: {e}") from e
+
+
 # =============================================================================
 # 5. PaymentMandate JWT Issuance & Verification (Platform-Signed)
 # =============================================================================

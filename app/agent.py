@@ -18,6 +18,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, TypedDict
+from uuid import uuid4
 import httpx
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -442,7 +443,7 @@ def deliberate_and_route_node_factory(
                 f"Instructions:\n"
                 f"- Analyze the user goal. If the user asks for multiple items, select all matching SKUs and specify their quantities.\n"
                 f"- If the user asks for a single item, select the single best SKU that is closest to or within the user's budget and category.\n"
-                f"- If no item is strictly within budget, select the closest/lowest-priced alternative matching the desired product type.\n"
+                f"- If no item is strictly within budget, select the item that matches the specific requested product type and keywords (e.g. if the user asked for chocolate cake, do not pick vanilla cake; select the chocolate cake even if above budget so approval can be requested).\n"
                 f"- Respond ONLY with a JSON object in this exact format:\n"
                 f'{{"items": [{{"sku": "SKU-CODE", "quantity": 1}}], "reasoning": "1 sentence explanation"}}\n'
             )
@@ -499,7 +500,7 @@ def deliberate_and_route_node_factory(
                 currency="INR",
                 allowed_categories=["bakery", "gifting", "electronics"],
                 allowed_merchant_ids=allowed_merchants,
-                nonce="nonce_agent_deliberate",
+                nonce=f"nonce_agent_{uuid4().hex}",
                 not_before=now - timedelta(minutes=5),
                 expires_at=now + timedelta(hours=1),
             )

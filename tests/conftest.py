@@ -32,3 +32,12 @@ def db_session(engine) -> Generator[Session, None, None]:
 
     session.close()
     Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture(autouse=True)
+def clean_test_key_provider():
+    """Ensures test key provider state is isolated and reset across all test functions."""
+    from app.merchant_keys import clear_test_merchant_keys
+    clear_test_merchant_keys()
+    yield
+    clear_test_merchant_keys()

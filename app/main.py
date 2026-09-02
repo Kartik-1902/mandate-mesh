@@ -19,6 +19,7 @@ from app.api.intent import router as intent_router
 from app.api.ledger_routes import router as ledger_router
 from app.api.mandates import router as mandates_router
 from app.api.webhooks import router as webhooks_router
+from app.config import settings
 from app.crypto import generate_es256_keypair
 from app.db import Base, engine, get_session
 from app.errors import PolicyViolation
@@ -30,34 +31,37 @@ from app.reconcile import reconcile_stuck_orders
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application startup & shutdown events."""
-    try:
-        # 1. Ensure database tables exist
+    # 1. Database readiness check & schema initialization
+    if settings.APP_ENV != "production":
         Base.metadata.create_all(bind=engine)
+    else:
+        # In production, schema is managed strictly via Alembic migrations
+        with engine.connect() as conn:
+            pass
 
-        # 2. Seed merchant catalog
-        session = get_session()
-        try:
-            seed_catalog(session)
-            session.commit()
-        except Exception:
-            session.rollback()
-        finally:
-            session.close()
-
-        # 3. Self-healing reconciliation of stuck ORDER_CREATING mandates (ADR-005)
-        rec_session = get_session()
-        try:
-            rzp_client = RazorpayClient(mock_mode=True)
-            reconcile_stuck_orders(rec_session, rzp_client)
-        except Exception:
-            rec_session.rollback()
-        finally:
-            rec_session.close()
-    except Exception:
-        pass
-
-    # 4. Ensure local keys exist for user, platform, and all demo merchants
+    # 2. Seed merchant catalog
+    session = get_session()
     try:
+        seed_catalog(session)
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise RuntimeError(f"Failed to seed merchant catalog during startup: {e}") from e
+    finally:
+        session.close()
+
+    # 3. Self-healing reconciliation of stuck ORDER_CREATING mandates (ADR-005)
+    rec_session = get_session()
+    try:
+        rzp_client = RazorpayClient(mock_mode=True)
+        reconcile_stuck_orders(rec_session, rzp_client)
+    except Exception:
+        rec_session.rollback()
+    finally:
+        rec_session.close()
+
+    # 4. In development/testing, ensure local demo keys exist
+    if settings.APP_ENV != "production":
         from app.merchant_keys import KNOWN_DEMO_MERCHANTS, MERCHANT_KEYS_DIR
 
         KEYS_DIR.mkdir(parents=True, exist_ok=True)
@@ -71,7 +75,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 priv_p.write_bytes(priv_b)
                 pub_p.write_bytes(pub_b)
 
-        # Generate per-merchant keys
+        # Generate per-merchant keys for demo environment
         for mid in KNOWN_DEMO_MERCHANTS:
             m_dir = MERCHANT_KEYS_DIR / mid
             m_dir.mkdir(parents=True, exist_ok=True)
@@ -91,8 +95,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             flat_priv.write_bytes(cake_priv.read_bytes())
         if cake_pub.exists() and not flat_pub.exists():
             flat_pub.write_bytes(cake_pub.read_bytes())
-    except Exception:
-        pass
 
     yield
 

@@ -51,6 +51,8 @@ def test_concurrent_reservations_cannot_overspend(db_session, engine, test_keys)
     Assert: Exactly 1 succeeds, 19 are rejected with PolicySpendCapExceeded.
     Assert: IntentRegistry.reserved_paise == 94000 (<= 150000).
     """
+    if engine.dialect.name == "sqlite":
+        pytest.skip("SQLite does not support row-level SELECT FOR UPDATE; concurrency guarantees apply to PostgreSQL.")
     SessionMaker = sessionmaker(bind=engine)
     init_db = SessionMaker()
     seed_catalog(init_db)
@@ -192,6 +194,8 @@ def test_concurrent_webhook_dedup(db_session, engine, test_keys):
     Assert: Exactly 1 WebhookEvent row created.
     Assert: IntentRegistry.captured_paise incremented exactly once.
     """
+    if engine.dialect.name == "sqlite":
+        pytest.skip("SQLite does not support row-level SELECT FOR UPDATE; concurrency guarantees apply to PostgreSQL.")
     SessionMaker = sessionmaker(bind=engine)
     db = SessionMaker()
     seed_catalog(db)
@@ -286,6 +290,8 @@ def test_concurrent_multi_transaction_intent_limits(db_session, engine, test_key
     Assert: Exactly 3 succeed; 7 receive PolicyTransactionLimitReached.
     Assert: IntentRegistry.transactions_consumed == 3.
     """
+    if engine.dialect.name == "sqlite":
+        pytest.skip("SQLite does not support row-level SELECT FOR UPDATE; concurrency guarantees apply to PostgreSQL.")
     SessionMaker = sessionmaker(bind=engine)
     init_db = SessionMaker()
     seed_catalog(init_db)

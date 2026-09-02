@@ -11,15 +11,22 @@ from app.api.deps import (
 from app.crypto import generate_es256_keypair, verify_cart_jwt
 from app.errors import PolicyCartSignatureInvalid
 from app.merchant import seed_catalog, sign_cart
+from app.key_provider import (
+    FilesystemKeyProvider,
+    InMemoryTestKeyProvider,
+    MerchantKeyProvider,
+)
 from app.merchant_keys import (
     KNOWN_DEMO_MERCHANTS,
     MerchantKeyNotFound,
     clear_test_merchant_keys,
+    get_key_provider,
     get_merchant_kid,
     get_merchant_private_key,
     get_merchant_public_key,
     list_known_merchant_ids,
     register_test_merchant_key,
+    set_key_provider,
 )
 
 
@@ -116,6 +123,9 @@ def test_register_test_merchant_key_fixture_hook():
     mock_priv, mock_pub = generate_es256_keypair()
     mock_id = "merchant_mock_fixture_01"
 
+    # Ensure clear state
+    clear_test_merchant_keys()
+
     # Initially raises
     with pytest.raises(MerchantKeyNotFound):
         get_merchant_public_key(mock_id)
@@ -133,8 +143,38 @@ def test_register_test_merchant_key_fixture_hook():
         get_merchant_public_key(mock_id)
 
 
+def test_in_memory_test_key_provider_direct_injection():
+    """InMemoryTestKeyProvider can be instantiated and passed directly to functions."""
+    priv, pub = generate_es256_keypair()
+    provider = InMemoryTestKeyProvider(
+        initial_keys={"merchant_injected_01": (priv, pub)},
+        auto_generate_for_demo=False,
+    )
+
+    assert isinstance(provider, MerchantKeyProvider)
+    assert provider.get_private_key("merchant_injected_01") == priv
+    assert provider.get_public_key("merchant_injected_01") == pub
+    assert provider.list_known_merchants() == ["merchant_injected_01"]
+
+    with pytest.raises(MerchantKeyNotFound):
+        provider.get_public_key("nonexistent")
+
+    # Injected via provider parameter
+    assert get_merchant_public_key("merchant_injected_01", provider=provider) == pub
+    assert get_merchant_private_key("merchant_injected_01", provider=provider) == priv
+
+
+def test_filesystem_key_provider_protocol_conformance():
+    """FilesystemKeyProvider satisfies the MerchantKeyProvider protocol."""
+    fs_provider = FilesystemKeyProvider()
+    assert isinstance(fs_provider, MerchantKeyProvider)
+    known = fs_provider.list_known_merchants()
+    assert isinstance(known, list)
+
+
 def test_deps_multi_merchant_and_backward_compatibility_helpers():
     """deps.py provides new multi-merchant getters and backward-compatible flat aliases."""
+    clear_test_merchant_keys()
     # New getters
     priv_sweet = deps_get_merchant_private_key("merchant_sweetdelight_02")
     pub_sweet = deps_get_merchant_public_key("merchant_sweetdelight_02")

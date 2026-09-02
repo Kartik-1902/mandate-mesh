@@ -158,7 +158,9 @@ def seed_catalog(
     seeded: list[CatalogItem] = []
 
     for mid in targets:
-        items_data = DEMO_CATALOGS.get(mid, DEMO_CATALOGS["merchant_cakehouse_01"])
+        items_data = DEMO_CATALOGS.get(mid)
+        if not items_data:
+            continue
         for item_data in items_data:
             existing = (
                 db.query(CatalogItem)
