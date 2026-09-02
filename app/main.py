@@ -23,7 +23,6 @@ from app.crypto import generate_es256_keypair
 from app.db import Base, engine, get_session
 from app.errors import PolicyViolation
 from app.merchant import seed_catalog
-from app.models import CatalogItem
 from app.razorpay_client import RazorpayClient
 from app.reconcile import reconcile_stuck_orders
 
@@ -35,21 +34,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         # 1. Ensure database tables exist
         Base.metadata.create_all(bind=engine)
 
-        # 2. Seed merchant catalog with SQLite auto-healing for composite constraints
+        # 2. Seed merchant catalog
         session = get_session()
         try:
             seed_catalog(session)
             session.commit()
         except Exception:
             session.rollback()
-            try:
-                # Auto-heal legacy SQLite schema constraint drift
-                CatalogItem.__table__.drop(bind=engine, checkfirst=True)
-                CatalogItem.__table__.create(bind=engine, checkfirst=True)
-                seed_catalog(session)
-                session.commit()
-            except Exception:
-                session.rollback()
         finally:
             session.close()
 
