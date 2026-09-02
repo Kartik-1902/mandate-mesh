@@ -282,3 +282,40 @@ def test_canonical_products_api_endpoint(client, db_session):
     search_prods = search_res.json()
     assert len(search_prods) == 1
     assert search_prods[0]["canonical_name"] == "Chocolate Truffle Cake (1kg)"
+
+
+def test_deleting_canonical_product_does_not_delete_catalog_item(db_session):
+    """Regression Test: Deleting a CanonicalProduct must NOT cascade-delete CatalogItem (no delete-orphan)."""
+    pid = uuid4()
+    prod = CanonicalProduct(
+        product_id=pid,
+        canonical_name="Temporary Canonical Good",
+        category="bakery",
+    )
+    db_session.add(prod)
+    db_session.flush()
+
+    item = CatalogItem(
+        merchant_id="merchant_cakehouse_01",
+        sku="CK-PERSISTENT-01",
+        product_id=pid,
+        name="Merchant Persistent Inventory Item",
+        description="Must survive canonical deletion.",
+        category="bakery",
+        price_paise=50000,
+        in_stock=True,
+    )
+    db_session.add(item)
+    db_session.commit()
+
+    # Unlink canonical product and delete
+    item.product_id = None
+    db_session.delete(prod)
+    db_session.commit()
+
+    # CatalogItem MUST still exist in database
+    survived = db_session.query(CatalogItem).filter_by(sku="CK-PERSISTENT-01").first()
+    assert survived is not None
+    assert survived.name == "Merchant Persistent Inventory Item"
+    assert survived.product_id is None
+

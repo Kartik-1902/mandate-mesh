@@ -180,7 +180,7 @@ class CanonicalProduct(Base):
     )
 
     catalog_items: Mapped[list["CatalogItem"]] = relationship(
-        "CatalogItem", back_populates="product", cascade="all, delete-orphan"
+        "CatalogItem", back_populates="product"
     )
 
 
