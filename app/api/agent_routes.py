@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.agent import run_buyer_agent
+from app.agent import parse_goal_node, run_buyer_agent
 from app.api.deps import (
     get_db,
     get_merchant_private_key_pem,
@@ -96,7 +96,16 @@ def deliberate_goal(
                 detail=f"Requested merchant '{mid}' is not a registered merchant identity.",
             )
 
-    spend_cap = req.initial_budget_paise or req.spend_cap_paise
+    # Harmonize spend cap from explicit request or natural language goal
+    parsed_goal = parse_goal_node({"goal": req.goal}).get("parsed_intent", {})
+    parsed_budget = parsed_goal.get("max_budget_paise") if isinstance(parsed_goal, dict) else None
+
+    if req.initial_budget_paise is not None:
+        spend_cap = req.initial_budget_paise
+    elif parsed_budget is not None:
+        spend_cap = parsed_budget
+    else:
+        spend_cap = req.spend_cap_paise
 
     # 2. Pre-Agent Intent Minting (Patch 4 / Invariant 1)
     now = datetime.now(timezone.utc)
@@ -133,6 +142,10 @@ def deliberate_goal(
         db=db,
     )
     winner_total = winner_quote.total_paise if winner_quote else None
+
+    # If no quote was eligible within budget, transition status to REQUIRES_USER_APPROVAL
+    if winner_quote is None and all_quotes:
+        status = "REQUIRES_USER_APPROVAL"
 
     # Safe external projection of all candidate quotes (omitting raw JWTs per ADR-002 / Patch 1)
     candidate_quotes = [
@@ -237,15 +250,24 @@ def escalate_and_pay(
     user_pub: bytes = Depends(get_user_public_key_pem),
     platform_priv: bytes = Depends(get_platform_private_key_pem),
 ) -> DeliberateResponse:
-    """Human-in-the-Loop budget escalation (ADR-007): Mints upgraded intent and authorizes mandate."""
-    merchant_pub = get_merchant_public_key(req.merchant_id)
+    # Dynamically extract merchant_id from signed cart claims or fallback to request
+    merchant_id = req.merchant_id
+    try:
+        import jwt
+        unverified = jwt.decode(req.cart_jwt, options={"verify_signature": False})
+        if unverified.get("merchant_id"):
+            merchant_id = unverified["merchant_id"]
+    except Exception:
+        pass
+
+    merchant_pub = get_merchant_public_key(merchant_id)
 
     now = datetime.now(timezone.utc)
     intent = UserIntentCredential(
         user_id=req.user_id,
         spend_cap_paise=req.approved_budget_paise,
         allowed_categories=["bakery", "gifting", "electronics"],
-        allowed_merchant_ids=[req.merchant_id],
+        allowed_merchant_ids=[merchant_id],
         nonce=uuid4().hex,
         not_before=now - timedelta(minutes=1),
         expires_at=now + timedelta(hours=1),

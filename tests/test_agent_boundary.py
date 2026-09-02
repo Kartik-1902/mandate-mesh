@@ -364,3 +364,43 @@ def test_agent_budget_escalation_requires_user_approval(db_session, test_keys):
     )
     assert record.authorized_amount_paise == 94000
     assert record.reserved_paise == 94000
+
+
+def test_agent_goal_parsing_supports_at_price_syntax():
+    """Verify that parse_goal_node extracts budget ceiling from natural language phrasing."""
+    from app.agent import parse_goal_node
+
+    p1 = parse_goal_node({"goal": "buy me cake at 800"})["parsed_intent"]
+    assert p1["max_budget_paise"] == 80000
+
+    p2 = parse_goal_node({"goal": "buy me cake at price 200"})["parsed_intent"]
+    assert p2["max_budget_paise"] == 20000
+
+    p3 = parse_goal_node({"goal": "order a chocolate cake for 500"})["parsed_intent"]
+    assert p3["max_budget_paise"] == 50000
+
+    p4 = parse_goal_node({"goal": "buy cake costing Rs. 1200"})["parsed_intent"]
+    assert p4["max_budget_paise"] == 120000
+
+    p5 = parse_goal_node({"goal": "chocolate cake under 1500"})["parsed_intent"]
+    assert p5["max_budget_paise"] == 150000
+
+
+def test_agent_proposes_closest_cheapest_alternative_when_over_budget(db_session, test_keys):
+    """Verify that when no item is <= budget, the agent proposes the closest/cheapest alternative."""
+    seed_catalog(db_session)
+    db_session.commit()
+
+    result = run_buyer_agent(
+        goal="buy me cake at price 200",
+        db=db_session,
+        allowed_merchant_ids=["merchant_cakehouse_01"],
+        merchant_private_key_pem=test_keys["merchant"][0],
+    )
+
+    assert result["status"] == "REQUIRES_USER_APPROVAL"
+    assert result["selected_sku"] == "CAKE-VAN-001"  # Rs. 850 (cheapest cake at CakeHouse)
+    assert result["escalation_details"] is not None
+    assert result["escalation_details"]["current_budget_paise"] == 20000
+    assert result["escalation_details"]["suggested_total_paise"] == 85000
+    assert result["escalation_details"]["overspend_paise"] == 65000

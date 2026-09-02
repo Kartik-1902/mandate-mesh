@@ -11,7 +11,7 @@ Core Invariants:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Sequence
+from typing import Any, Sequence
 from sqlalchemy.orm import Session
 
 from app.crypto import compute_cart_hash, verify_cart_jwt

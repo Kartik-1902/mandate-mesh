@@ -324,6 +324,7 @@ def parse_goal_node(state: BuyerAgentState) -> dict[str, Any]:
             f"You are an e-commerce purchasing intent parser for Mandate Mesh.\n"
             f"User Goal: '{goal_text}'\n\n"
             f"Extract search keywords and category. Known merchant categories: 'bakery', 'gifting'. If unsure, set category to null.\n"
+            f"Extract the user's budget ceiling if specified in any phrasing (e.g. 'under 800', 'at 800', 'price 200', 'for 500', 'costing 1000', 'Rs. 800', 'INR 800', '₹800').\n"
             f"Respond ONLY with a JSON object in this exact format (no markdown, no other text):\n"
             f'{{"category": "bakery", "keywords": ["keyword1", "keyword2"], "max_budget_paise": 150000}}\n'
             f"Note: 1 Rupee = 100 paise. If no budget is specified, set max_budget_paise to null."
@@ -345,16 +346,22 @@ def parse_goal_node(state: BuyerAgentState) -> dict[str, Any]:
                 pass
 
     # 2. Heuristic fallback (offline / CI)
-    range_match = re.search(r"between\s*(?:rs\.?|inr)?\s*(\d+)\s*(?:to|and|-)\s*(?:rs\.?|inr)?\s*(\d+)", goal_text, re.IGNORECASE)
+    range_match = re.search(r"between\s*(?:rs\.?|inr|₹)?\s*(\d+)\s*(?:to|and|-)\s*(?:rs\.?|inr|₹)?\s*(\d+)", goal_text, re.IGNORECASE)
     if range_match:
         parsed["max_budget_paise"] = int(range_match.group(2)) * 100
     else:
-        budget_match = re.search(r"(?:under|below|max|budget|within|up to|upto|less than)\s*(?:rs\.?|inr)?\s*(\d+)", goal_text, re.IGNORECASE)
+        budget_match = re.search(
+            r"(?:under|below|max|budget|within|up to|upto|less than|at price|at|price|for|around|costing)\s*(?:rs\.?|inr|₹)?\s*(\d+)",
+            goal_text,
+            re.IGNORECASE,
+        )
+        if not budget_match:
+            budget_match = re.search(r"(?:rs\.?|inr|₹)\s*(\d+)", goal_text, re.IGNORECASE)
         if budget_match:
             parsed["max_budget_paise"] = int(budget_match.group(1)) * 100
 
     words = [w.strip(",.!?\"'") for w in goal_text.split()]
-    stop_words = {"order", "want", "please", "under", "with", "from", "between", "around", "about", "some", "like"}
+    stop_words = {"order", "want", "please", "under", "with", "from", "between", "around", "about", "some", "like", "price", "buy"}
     meaningful_words = [w for w in words if len(w) > 2 and not w.isdigit() and w.lower() not in stop_words]
     parsed["keywords"] = meaningful_words
 
@@ -373,20 +380,23 @@ def browse_catalog_node_factory(db: Session) -> Callable[[BuyerAgentState], dict
     def browse_catalog_node(state: BuyerAgentState) -> dict[str, Any]:
         intent = state.get("parsed_intent", {})
         keywords = intent.get("keywords", [])
+        category = intent.get("category")
         allowed_merchants = state.get("allowed_merchant_ids", [])
 
-        # Bug 5: Retrieve active in-stock merchant items scoped at SQL level
+        # Retrieve active in-stock merchant items scoped at SQL level
         items = browse_catalog_tool(db=db, merchant_ids=allowed_merchants if allowed_merchants else None)
 
-        # Filter and score by keywords
+        # Filter and score by keywords and category
         matching_candidates: list[dict[str, Any]] = []
         for item in items:
             item_text = f"{item['name']} {item['description']} {item['category']}".lower()
-            score = sum(1 for kw in keywords if kw.lower() in item_text)
-            matching_candidates.append({**item, "match_score": score})
+            kw_score = sum(1 for kw in keywords if kw.lower() in item_text)
+            cat_bonus = 2 if category and item["category"].lower() == category.lower() else 0
+            total_score = kw_score + cat_bonus
+            matching_candidates.append({**item, "match_score": total_score})
 
-        # Sort by match score descending
-        matching_candidates.sort(key=lambda x: x["match_score"], reverse=True)
+        # Sort primarily by match score descending, secondarily by price ascending (cheapest alternative first)
+        matching_candidates.sort(key=lambda x: (-x["match_score"], x["price_paise"]))
 
         return {"catalog_candidates": matching_candidates}
 
@@ -414,6 +424,10 @@ def deliberate_and_route_node_factory(
         proposed_items: list[dict[str, Any]] = []
         llm_reasoning = None
 
+        parsed_intent = state.get("parsed_intent", {})
+        max_budget = parsed_intent.get("max_budget_paise")
+        spend_cap = max_budget if max_budget is not None else state.get("spend_cap_paise", 150000)
+
         # 1. Live Gemini Deliberation if API Key configured
         if api_key and candidates:
             catalog_summary = "\n".join([
@@ -426,7 +440,8 @@ def deliberate_and_route_node_factory(
                 f"Available Catalog Items:\n{catalog_summary}\n\n"
                 f"Instructions:\n"
                 f"- Analyze the user goal. If the user asks for multiple items, select all matching SKUs and specify their quantities.\n"
-                f"- If the user asks for a single item, select the single best SKU.\n"
+                f"- If the user asks for a single item, select the single best SKU that is closest to or within the user's budget and category.\n"
+                f"- If no item is strictly within budget, select the closest/lowest-priced alternative matching the desired product type.\n"
                 f"- Respond ONLY with a JSON object in this exact format:\n"
                 f'{{"items": [{{"sku": "SKU-CODE", "quantity": 1}}], "reasoning": "1 sentence explanation"}}\n'
             )
@@ -452,7 +467,11 @@ def deliberate_and_route_node_factory(
             if state.get("proposed_items"):
                 proposed_items = state["proposed_items"]
             else:
-                chosen = candidates[0]
+                cat = parsed_intent.get("category")
+                eligible_candidates = [c for c in candidates if not cat or c["category"].lower() == cat.lower()] or candidates
+                max_score = max((c.get("match_score", 0) for c in eligible_candidates), default=0)
+                best_candidates = [c for c in eligible_candidates if c.get("match_score", 0) == max_score] or eligible_candidates
+                chosen = min(best_candidates, key=lambda c: c["price_paise"])
                 qty = state.get("quantity", 1)
                 proposed_items = [{"sku": chosen["sku"], "quantity": qty}]
 
@@ -460,9 +479,6 @@ def deliberate_and_route_node_factory(
         primary_qty = proposed_items[0]["quantity"]
 
         allowed_merchants = state.get("allowed_merchant_ids") or list_known_merchant_ids()
-        parsed_intent = state.get("parsed_intent", {})
-        max_budget = parsed_intent.get("max_budget_paise")
-        spend_cap = max_budget if max_budget is not None else state.get("spend_cap_paise", 150000)
 
         # 3. Solicit quotes from all authorized candidate merchants
         solicited_quotes = collect_merchant_quotes(

@@ -333,3 +333,51 @@ def test_deliberate_api_idempotent_duplicate_request_id(client, db_session):
     tx_key = f"tx_agent_{UUID(req_id).hex}"
     records = db_session.query(MandateRecord).filter_by(idempotency_key=tx_key).all()
     assert len(records) == 1
+
+
+def test_deliberate_api_triggers_hitl_escalation_on_under_budget_prompt(client, db_session):
+    """Verify that when goal budget is below all quotes, deliberate API triggers HITL escalation with zero money moved."""
+    payload = {
+        "goal": "buy me cake at price 200",
+        "allowed_merchant_ids": ["merchant_cakehouse_01"],
+    }
+    response = client.post("/api/v1/agent/deliberate", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["status"] == "REQUIRES_USER_APPROVAL"
+    assert data["mandate"] is None
+    assert data["razorpay_order_id"] is None
+    assert data["cart_jwt"] is not None
+    assert data["escalation_details"] is not None
+    assert data["escalation_details"]["current_budget_paise"] == 20000
+    assert data["escalation_details"]["suggested_total_paise"] == 85000
+    assert data["escalation_details"]["overspend_paise"] == 65000
+
+
+def test_deliberate_api_escalate_and_pay_completes_order(client, db_session):
+    """Verify that approving escalation via /api/v1/agent/escalate-and-pay completes payment."""
+    # 1. Trigger deliberation requiring escalation
+    deliberate_res = client.post("/api/v1/agent/deliberate", json={
+        "goal": "buy me cake at price 200",
+        "allowed_merchant_ids": ["merchant_cakehouse_01"],
+    })
+    assert deliberate_res.status_code == 200
+    d_data = deliberate_res.json()
+    assert d_data["status"] == "REQUIRES_USER_APPROVAL"
+    cart_jwt = d_data["cart_jwt"]
+    suggested_price = d_data["escalation_details"]["suggested_total_paise"]
+
+    # 2. User approves escalated price
+    escalate_res = client.post("/api/v1/agent/escalate-and-pay", json={
+        "cart_jwt": cart_jwt,
+        "approved_budget_paise": suggested_price,
+        "merchant_id": "merchant_cakehouse_01",
+    })
+    assert escalate_res.status_code == 200
+    e_data = escalate_res.json()
+
+    assert e_data["status"] == "COMPLETED"
+    assert e_data["mandate"] is not None
+    assert e_data["mandate"]["authorized_amount_paise"] == suggested_price
+    assert e_data["razorpay_order_id"] is not None
