@@ -10,6 +10,7 @@ Defines the MerchantKeyProvider protocol and standard implementations:
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Final, Protocol, runtime_checkable
 
 from app.crypto import generate_es256_keypair, load_private_key_pem, load_public_key_pem
@@ -23,6 +24,8 @@ KNOWN_DEMO_MERCHANTS: Final[set[str]] = {
     "merchant_artisan_03",
 }
 
+_MERCHANT_ID_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
+
 
 class MerchantKeyNotFound(Exception):
     """Raised when no trusted key material exists for the requested merchant_id."""
@@ -32,8 +35,42 @@ class MerchantKeyNotFound(Exception):
         super().__init__(message or f"No trusted key material registered for merchant_id: '{merchant_id}'")
 
 
+def validate_merchant_id(merchant_id: str) -> None:
+    """Validates merchant_id against path traversal, path separators, and invalid characters.
+
+    Args:
+        merchant_id: The merchant identifier to validate.
+
+    Raises:
+        MerchantKeyNotFound: If merchant_id is empty, contains path traversal,
+                             path separators, or non-whitelisted characters.
+    """
+    if not merchant_id or not isinstance(merchant_id, str):
+        raise MerchantKeyNotFound(str(merchant_id), "Merchant ID cannot be empty.")
+
+    # Explicit rejection of path separators, traversal components, drive letters, and null bytes
+    if (
+        "/" in merchant_id
+        or "\\" in merchant_id
+        or ".." in merchant_id
+        or ":" in merchant_id
+        or "\0" in merchant_id
+    ):
+        raise MerchantKeyNotFound(
+            merchant_id,
+            f"Invalid merchant ID '{merchant_id}': path traversal and separators are strictly prohibited.",
+        )
+
+    if not _MERCHANT_ID_PATTERN.match(merchant_id):
+        raise MerchantKeyNotFound(
+            merchant_id,
+            f"Invalid merchant ID '{merchant_id}': must consist only of alphanumeric characters, hyphens, and underscores (max 128 chars).",
+        )
+
+
 def get_merchant_kid(merchant_id: str) -> str:
     """Returns canonical key identifier (kid) string for merchant: '<merchant_id>:key-1'."""
+    validate_merchant_id(merchant_id)
     return f"{merchant_id}:key-1"
 
 
@@ -61,8 +98,7 @@ class FilesystemKeyProvider:
         self.base_dir = Path(base_dir)
 
     def get_private_key(self, merchant_id: str) -> bytes:
-        if not merchant_id:
-            raise MerchantKeyNotFound(merchant_id, "Merchant ID cannot be empty.")
+        validate_merchant_id(merchant_id)
 
         disk_path = self.base_dir / merchant_id / "private.pem"
         if disk_path.exists() and disk_path.is_file():
@@ -77,8 +113,7 @@ class FilesystemKeyProvider:
         raise MerchantKeyNotFound(merchant_id)
 
     def get_public_key(self, merchant_id: str) -> bytes:
-        if not merchant_id:
-            raise MerchantKeyNotFound(merchant_id, "Merchant ID cannot be empty.")
+        validate_merchant_id(merchant_id)
 
         disk_path = self.base_dir / merchant_id / "public.pem"
         if disk_path.exists() and disk_path.is_file():
@@ -117,6 +152,7 @@ class InMemoryTestKeyProvider:
 
     def register_key(self, merchant_id: str, private_pem: bytes, public_pem: bytes) -> None:
         """Explicitly registers mock merchant keys."""
+        validate_merchant_id(merchant_id)
         self._keys[merchant_id] = (private_pem, public_pem)
 
     def clear(self) -> None:
@@ -124,15 +160,13 @@ class InMemoryTestKeyProvider:
         self._keys.clear()
 
     def get_private_key(self, merchant_id: str) -> bytes:
-        if not merchant_id:
-            raise MerchantKeyNotFound(merchant_id, "Merchant ID cannot be empty.")
+        validate_merchant_id(merchant_id)
         if merchant_id in self._keys:
             return self._keys[merchant_id][0]
         raise MerchantKeyNotFound(merchant_id)
 
     def get_public_key(self, merchant_id: str) -> bytes:
-        if not merchant_id:
-            raise MerchantKeyNotFound(merchant_id, "Merchant ID cannot be empty.")
+        validate_merchant_id(merchant_id)
         if merchant_id in self._keys:
             return self._keys[merchant_id][1]
         raise MerchantKeyNotFound(merchant_id)

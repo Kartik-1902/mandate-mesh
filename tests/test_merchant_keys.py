@@ -186,3 +186,54 @@ def test_deps_multi_merchant_and_backward_compatibility_helpers():
     flat_priv = get_merchant_private_key_pem()
     assert flat_pub == get_merchant_public_key("merchant_cakehouse_01")
     assert flat_priv == get_merchant_private_key("merchant_cakehouse_01")
+
+
+@pytest.mark.parametrize(
+    "malicious_merchant_id",
+    [
+        "../../secret",
+        "../merchant_cakehouse_01",
+        r"C:\Windows\System32\calc.exe",
+        "/etc/passwd",
+        "merchant/a",
+        r"merchant\..\x",
+        "merchant:cakehouse",
+        "merchant\0nullbyte",
+        "merchant id spaces",
+        "merchant.dot.ext",
+        "merchant@corp.com",
+        "merchant#123",
+        "merchant$dollar",
+        "..",
+        ".",
+        "   ",
+    ],
+)
+def test_merchant_id_path_traversal_and_malicious_inputs_rejected(malicious_merchant_id):
+    """FilesystemKeyProvider and InMemoryTestKeyProvider strictly reject path traversal,
+    separators, drive letters, and unwhitelisted characters."""
+    fs_provider = FilesystemKeyProvider()
+    mem_provider = InMemoryTestKeyProvider(auto_generate_for_demo=False)
+
+    # FilesystemKeyProvider
+    with pytest.raises(MerchantKeyNotFound):
+        fs_provider.get_private_key(malicious_merchant_id)
+    with pytest.raises(MerchantKeyNotFound):
+        fs_provider.get_public_key(malicious_merchant_id)
+
+    # InMemoryTestKeyProvider
+    with pytest.raises(MerchantKeyNotFound):
+        mem_provider.get_private_key(malicious_merchant_id)
+    with pytest.raises(MerchantKeyNotFound):
+        mem_provider.get_public_key(malicious_merchant_id)
+    with pytest.raises(MerchantKeyNotFound):
+        mem_provider.register_key(malicious_merchant_id, b"fake_priv", b"fake_pub")
+
+    # Module-level registry helpers
+    with pytest.raises(MerchantKeyNotFound):
+        get_merchant_private_key(malicious_merchant_id)
+    with pytest.raises(MerchantKeyNotFound):
+        get_merchant_public_key(malicious_merchant_id)
+    with pytest.raises(MerchantKeyNotFound):
+        get_merchant_kid(malicious_merchant_id)
+

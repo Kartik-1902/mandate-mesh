@@ -28,14 +28,43 @@ from app.razorpay_client import RazorpayClient
 from app.reconcile import reconcile_stuck_orders
 
 
+def validate_schema_head(db_engine) -> None:
+    """Validates that the database matches the expected Alembic head revision.
+
+    Raises:
+        RuntimeError: If the database is not migrated to the current Alembic head revision.
+    """
+    from pathlib import Path
+    from alembic.config import Config
+    from alembic.migration import MigrationContext
+    from alembic.script import ScriptDirectory
+
+    ini_path = Path(__file__).resolve().parent.parent / "alembic.ini"
+    if not ini_path.exists():
+        raise RuntimeError(f"Alembic configuration file not found at '{ini_path}'.")
+
+    alembic_cfg = Config(str(ini_path))
+    script = ScriptDirectory.from_config(alembic_cfg)
+    head_rev = script.get_current_head()
+
+    with db_engine.connect() as conn:
+        context = MigrationContext.configure(conn)
+        current_rev = context.get_current_revision()
+
+        if current_rev != head_rev:
+            raise RuntimeError(
+                f"Production startup failed: database revision '{current_rev}' does not match expected Alembic head '{head_rev}'. "
+                f"Please run 'alembic upgrade head' before starting the application."
+            )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application startup & shutdown events."""
-    # 1. Database readiness check & schema initialization
-    if settings.APP_ENV != "production":
-        Base.metadata.create_all(bind=engine)
+    # 1. Database readiness check & schema version validation
+    if settings.APP_ENV == "production":
+        validate_schema_head(engine)
     else:
-        # In production, schema is managed strictly via Alembic migrations
         with engine.connect() as conn:
             pass
 
