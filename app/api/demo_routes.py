@@ -24,6 +24,7 @@ from app.crypto import (
     verify_receipt_jwt,
 )
 from app.ledger import verify_chain
+from app.mandate_fsm import transition
 from app.merchant import sign_cart
 from app.merchant_keys import get_merchant_private_key, get_merchant_public_key
 from app.models import MandateRecord, MandateStatus
@@ -189,9 +190,10 @@ def trigger_attack(
         mandate, mandate_jwt, record = authorize_mandate(
             intent_jwt, cart_jwt, f"tx_ui_replay_{uuid4().hex[:8]}", user_pub, merchant_pub, platform_priv, db
         )
+        transition(record, MandateStatus.ORDER_CREATING, db)
         rzp_order = rzp.create_order(amount_paise=94000, receipt=record.order_idempotency_key)
-        record.status = MandateStatus.ORDER_CREATED
         record.razorpay_order_id = rzp_order["id"]
+        transition(record, MandateStatus.ORDER_CREATED, db)
         db.commit()
 
         raw_body, signature = simulate_payment_captured_webhook(

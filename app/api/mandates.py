@@ -13,6 +13,7 @@ from app.api.deps import (
 from app.crypto import extract_unverified_cart_merchant_id
 from app.errors import PolicyViolation
 from app.ledger import append_entry
+from app.mandate_fsm import transition
 from app.merchant_keys import get_merchant_public_key, MerchantKeyNotFound
 from app.models import LedgerEntryType, MandateRecord, MandateStatus
 from app.policy import authorize_mandate
@@ -31,7 +32,7 @@ class AuthorizeMandateRequest(BaseModel):
 class AuthorizeMandateResponse(BaseModel):
     mandate: PaymentMandate
     mandate_jwt: str
-    razorpay_order_id: str
+    razorpay_order_id: str | None = None
     order_idempotency_key: str
     status: str
 
@@ -45,25 +46,24 @@ class ReconcileMandateResponse(BaseModel):
 
 
 @router.post("/authorize", status_code=status.HTTP_201_CREATED, response_model=AuthorizeMandateResponse)
-def authorize_payment_mandate(
+def authorize_and_create_mandate(
     req: AuthorizeMandateRequest,
     db: Session = Depends(get_db),
-    razorpay_client: RazorpayClient = Depends(get_razorpay_client),
     user_pub: bytes = Depends(get_user_public_key_pem),
     platform_priv: bytes = Depends(get_platform_private_key_pem),
+    razorpay_client: RazorpayClient = Depends(get_razorpay_client),
 ) -> AuthorizeMandateResponse:
-    """Evaluates deterministic bounds, reserves spend cap, and creates Razorpay order."""
-    # 0. Dynamically resolve trusted merchant public key from unverified cart header/claims
-    unverified_mid = "unknown"
+    """Authorizes signed cart against verified intent, returns Mandate JWT and Razorpay order."""
+    # 0. Dynamically resolve merchant public key from unverified cart claims (Milestone M6 / ADR-008)
+    unverified_mid = extract_unverified_cart_merchant_id(req.cart_jwt)
     try:
-        unverified_mid = extract_unverified_cart_merchant_id(req.cart_jwt)
         resolved_merchant_pub = get_merchant_public_key(unverified_mid)
     except MerchantKeyNotFound as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown or untrusted merchant '{unverified_mid}': {e}",
         )
-    except PolicyViolation as e:
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid cart JWT: {e}",
@@ -80,8 +80,8 @@ def authorize_payment_mandate(
         db=db,
     )
 
-    # 2. Pre-flight write to ORDER_CREATING before network call (ADR-005)
-    record.status = MandateStatus.ORDER_CREATING
+    # 2. Pre-flight write to ORDER_CREATING before network call (ADR-005 / FSM)
+    transition(record, MandateStatus.ORDER_CREATING, db)
     db.commit()
 
     # 3. Call Razorpay Orders API with receipt = order_idempotency_key
@@ -96,7 +96,7 @@ def authorize_payment_mandate(
             },
         )
         record.razorpay_order_id = rzp_order["id"]
-        record.status = MandateStatus.ORDER_CREATED
+        transition(record, MandateStatus.ORDER_CREATED, db)
         append_entry(
             db=db,
             entry_type=LedgerEntryType.ORDER_CREATED,
@@ -142,7 +142,7 @@ def reconcile_mandate_order(
 
     if existing_order:
         record.razorpay_order_id = existing_order["id"]
-        record.status = MandateStatus.ORDER_CREATED
+        transition(record, MandateStatus.ORDER_CREATED, db)
         append_entry(
             db=db,
             entry_type=LedgerEntryType.ORDER_CREATED,
@@ -162,8 +162,8 @@ def reconcile_mandate_order(
             reconciled=True,
         )
     else:
-        # No order created at Razorpay; reset status to RESERVED for clean retry
-        record.status = MandateStatus.RESERVED
+        # No order created at Razorpay; reset status to RESERVED for clean retry (FSM)
+        transition(record, MandateStatus.RESERVED, db)
         db.commit()
         return ReconcileMandateResponse(
             mandate_id=record.mandate_id,

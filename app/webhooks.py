@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.crypto import extract_mandate_intent_hash, issue_receipt_jwt
 from app.errors import PolicyViolation
 from app.ledger import append_entry
+from app.mandate_fsm import transition
 from app.models import (
     IntentRegistry,
     LedgerEntryType,
@@ -190,8 +191,8 @@ def process_payment_webhook(
         # =====================================================================
         now = datetime.now(timezone.utc)
 
-        # Update MandateRecord
-        mandate_record.status = MandateStatus.PAYMENT_CAPTURED
+        # Update MandateRecord via FSM transition
+        transition(mandate_record, MandateStatus.PAYMENT_CAPTURED, db)
         mandate_record.captured_paise = amount_paise
         mandate_record.reserved_paise = 0
         mandate_record.razorpay_payment_id = payment_id
@@ -282,7 +283,7 @@ def process_payment_webhook(
         if order_id:
             mandate_record = db.query(MandateRecord).filter_by(razorpay_order_id=order_id).first()
             if mandate_record and mandate_record.status != MandateStatus.PAYMENT_CAPTURED:
-                mandate_record.status = MandateStatus.PAYMENT_FAILED
+                transition(mandate_record, MandateStatus.PAYMENT_FAILED, db)
                 intent_reg = db.query(IntentRegistry).filter_by(intent_id=mandate_record.intent_id).first()
                 if intent_reg:
                     # Release reservation back to available budget

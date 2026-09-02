@@ -276,11 +276,13 @@ def test_attack_4_duplicate_webhook_replay_deduplication(db_session, test_keys):
         db=db_session,
     )
 
-    # Transition to ORDER_CREATED
+    # Transition to ORDER_CREATED via FSM
+    from app.mandate_fsm import transition
+    transition(record, MandateStatus.ORDER_CREATING, db_session)
     rzp = RazorpayClient(mock_mode=True)
     rzp_order = rzp.create_order(amount_paise=94000, currency="INR", receipt=record.order_idempotency_key)
-    record.status = MandateStatus.ORDER_CREATED
     record.razorpay_order_id = rzp_order["id"]
+    transition(record, MandateStatus.ORDER_CREATED, db_session)
     db_session.commit()
 
     # Generate webhook payload
@@ -330,21 +332,24 @@ def test_attack_4_duplicate_webhook_replay_deduplication(db_session, test_keys):
     assert intent_row.reserved_paise == 0
 
 
-def test_attack_4_lost_response_reconciled(db_session, test_keys):
-    """Threat Model 4B: Lost-Response Order Reconciliation.
+def test_attack_4_stuck_order_state_reconciles_cleanly(db_session, test_keys):
+    """Threat Model 4: Race & Partition Vulnerabilities in Order Lifecycle.
 
-    Simulate network outage while MandateRecord is in ORDER_CREATING state.
-    Assert:
-      - Startup/periodic reconciler identifies dangling mandate.
-      - Queries mock Razorpay gateway by receipt reference.
-      - Successfully updates MandateRecord to ORDER_CREATED without duplicate order creation.
+    Adversarial Scenario:
+    Order creation call dispatched to gateway, gateway accepts and creates order,
+    but network drops or app server crashes before order_id is persisted locally.
+    Mandate record remains stuck in ORDER_CREATING state.
+
+    Mitigation Verification:
+    Reconciliation engine queries Razorpay by deterministic idempotency key (receipt),
+    discovers the created order, advances state to ORDER_CREATED, and records audit ledger.
     """
     seed_catalog(db_session)
     db_session.commit()
 
     now = datetime.now(timezone.utc)
     intent = UserIntentCredential(
-        user_id="user_victim_04b",
+        user_id="user_victim_04_stuck",
         spend_cap_paise=150000,
         allowed_categories=["bakery"],
         allowed_merchant_ids=["merchant_cakehouse_01"],
@@ -366,7 +371,7 @@ def test_attack_4_lost_response_reconciled(db_session, test_keys):
     mandate, mandate_jwt, record = authorize_mandate(
         intent_jwt=intent_jwt,
         cart_jwt=cart_jwt,
-        idempotency_key=f"tx_atk4b_{uuid4().hex[:8]}",
+        idempotency_key="tx_stuck_order_001",
         user_public_key_pem=test_keys["user"][1],
         merchant_public_key_pem=test_keys["merchant"][1],
         platform_private_key_pem=test_keys["platform"][0],
@@ -374,9 +379,10 @@ def test_attack_4_lost_response_reconciled(db_session, test_keys):
     )
 
     # Simulate: Order created on Razorpay gateway, but network died before DB status updated
+    from app.mandate_fsm import transition
+    transition(record, MandateStatus.ORDER_CREATING, db_session)
     rzp = RazorpayClient(mock_mode=True)
     rzp_order = rzp.create_order(amount_paise=94000, currency="INR", receipt=record.order_idempotency_key)
-    record.status = MandateStatus.ORDER_CREATING
     record.razorpay_order_id = None
     db_session.commit()
 

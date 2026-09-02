@@ -214,13 +214,15 @@ def test_agent_e2e_happy_path_with_policy_rail(db_session, test_keys):
     assert record.reserved_paise == 94000
 
     # 5. Create Razorpay order via client
+    from app.mandate_fsm import transition
+    transition(record, MandateStatus.ORDER_CREATING, db_session)
     rzp_client = RazorpayClient(mock_mode=True)
     rzp_order = rzp_client.create_order(
         amount_paise=record.authorized_amount_paise,
         receipt=record.order_idempotency_key,
     )
     record.razorpay_order_id = rzp_order["id"]
-    record.status = MandateStatus.ORDER_CREATED
+    transition(record, MandateStatus.ORDER_CREATED, db_session)
     db_session.commit()
 
     # 6. Webhook capture simulation

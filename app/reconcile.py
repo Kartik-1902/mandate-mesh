@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.ledger import append_entry
+from app.mandate_fsm import transition
 from app.models import LedgerEntryType, MandateRecord, MandateStatus
 from app.razorpay_client import RazorpayClient
 
@@ -47,7 +48,7 @@ def reconcile_stuck_orders(
 
         if matched_order:
             record.razorpay_order_id = matched_order["id"]
-            record.status = MandateStatus.ORDER_CREATED
+            transition(record, MandateStatus.ORDER_CREATED, db)
             append_entry(
                 db=db,
                 entry_type=LedgerEntryType.ORDER_CREATED,
@@ -67,8 +68,8 @@ def reconcile_stuck_orders(
                 "reconciled": True,
             })
         else:
-            # Order was never created at Razorpay; reset status to RESERVED for retry
-            record.status = MandateStatus.RESERVED
+            # Order was never created at Razorpay; reset status to RESERVED for retry (FSM)
+            transition(record, MandateStatus.RESERVED, db)
             results.append({
                 "mandate_id": record.mandate_id,
                 "order_idempotency_key": record.order_idempotency_key,

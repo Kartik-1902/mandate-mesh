@@ -287,28 +287,27 @@ def test_razorpay_order_creation_lost_response_reconciled(client, db_session, te
     )
     cart_jwt = res_cart.json()["cart_jwt"]
 
-    res_mandate = client.post(
-        "/api/v1/mandate/authorize",
-        json={
-            "intent_jwt": intent_jwt,
-            "cart_jwt": cart_jwt,
-            "idempotency_key": "tx_reconcile_test",
-        },
-    )
-    mandate_id = res_mandate.json()["mandate"]["mandate_id"]
-    order_idemp_key = res_mandate.json()["order_idempotency_key"]
+    from app.mandate_fsm import transition
+    from app.policy import authorize_mandate
 
-    # Artificially set status back to ORDER_CREATING to simulate dropped network response
-    record = db_session.query(MandateRecord).filter_by(mandate_id=mandate_id).first()
-    record.status = MandateStatus.ORDER_CREATING
-    record.razorpay_order_id = None
+    mandate, mandate_jwt, record = authorize_mandate(
+        intent_jwt=intent_jwt,
+        cart_jwt=cart_jwt,
+        idempotency_key="tx_reconcile_test",
+        user_public_key_pem=test_keys["user"][1],
+        merchant_public_key_pem=test_keys["merchant"][1],
+        platform_private_key_pem=test_keys["platform"][0],
+        db=db_session,
+    )
+    # Simulate pre-flight transition to ORDER_CREATING where network crashed
+    transition(record, MandateStatus.ORDER_CREATING, db_session)
     db_session.commit()
 
     # Create order at Razorpay with matching receipt
-    mock_rzp.create_order(amount_paise=94000, receipt=order_idemp_key)
+    mock_rzp.create_order(amount_paise=94000, receipt=record.order_idempotency_key)
 
     # Call reconciliation endpoint
-    res_rec = client.post(f"/api/v1/mandate/reconcile/{mandate_id}")
+    res_rec = client.post(f"/api/v1/mandate/reconcile/{record.mandate_id}")
     assert res_rec.status_code == 200
     rec_data = res_rec.json()
     assert rec_data["reconciled"] is True
@@ -330,25 +329,24 @@ def test_razorpay_lost_response_reconciled_via_receipt(client, db_session, test_
     )
     cart_jwt = res_cart.json()["cart_jwt"]
 
-    res_mandate = client.post(
-        "/api/v1/mandate/authorize",
-        json={
-            "intent_jwt": intent_jwt,
-            "cart_jwt": cart_jwt,
-            "idempotency_key": "tx_reconcile_retry_test",
-        },
-    )
-    mandate_id = res_mandate.json()["mandate"]["mandate_id"]
+    from app.mandate_fsm import transition
+    from app.policy import authorize_mandate
 
-    # Simulate dropped network before order reached Razorpay (clear from mock gateway)
-    record = db_session.query(MandateRecord).filter_by(mandate_id=mandate_id).first()
-    record.status = MandateStatus.ORDER_CREATING
-    record.razorpay_order_id = None
-    mock_rzp._mock_orders_by_receipt.pop(record.order_idempotency_key, None)
+    mandate, mandate_jwt, record = authorize_mandate(
+        intent_jwt=intent_jwt,
+        cart_jwt=cart_jwt,
+        idempotency_key="tx_reconcile_retry_test",
+        user_public_key_pem=test_keys["user"][1],
+        merchant_public_key_pem=test_keys["merchant"][1],
+        platform_private_key_pem=test_keys["platform"][0],
+        db=db_session,
+    )
+    # Simulate pre-flight transition to ORDER_CREATING where network crashed before reaching Razorpay
+    transition(record, MandateStatus.ORDER_CREATING, db_session)
     db_session.commit()
 
     # Reconcile -> No order found at Razorpay -> Reset to RESERVED
-    res_rec = client.post(f"/api/v1/mandate/reconcile/{mandate_id}")
+    res_rec = client.post(f"/api/v1/mandate/reconcile/{record.mandate_id}")
     assert res_rec.status_code == 200
     rec_data = res_rec.json()
     assert rec_data["reconciled"] is False

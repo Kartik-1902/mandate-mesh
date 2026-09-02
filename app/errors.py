@@ -110,3 +110,10 @@ class CatalogSkuNotFound(PolicyViolation):
 class WebhookSignatureInvalid(PolicyViolation):
     def __init__(self, message: str = "Webhook HMAC signature verification failed.") -> None:
         super().__init__("SIGNATURE_VERIFICATION_FAILED", message, http_status=400)
+
+
+# 409 Conflict: Mandate state transition failure (FSM)
+class PolicyMandateStateInvalid(PolicyViolation):
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("POLICY_MANDATE_STATE_INVALID", message, http_status=409, details=details)
+

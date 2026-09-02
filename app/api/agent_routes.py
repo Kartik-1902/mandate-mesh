@@ -17,6 +17,7 @@ from app.api.deps import (
     get_user_public_key_pem,
 )
 from app.crypto import extract_unverified_cart_merchant_id, issue_intent_jwt
+from app.mandate_fsm import transition
 from app.merchant_keys import get_merchant_public_key, list_known_merchant_ids
 from app.models import MandateRecord, MandateStatus
 from app.policy import authorize_mandate, verify_intent
@@ -192,15 +193,16 @@ def deliberate_goal(
                     db=db,
                 )
 
-                # Create mock Razorpay order
+                # Pre-flight write to ORDER_CREATING and create mock Razorpay order (FSM)
+                transition(record, MandateStatus.ORDER_CREATING, db)
                 rzp = RazorpayClient(mock_mode=True)
                 rzp_order = rzp.create_order(
                     amount_paise=record.authorized_amount_paise,
                     currency="INR",
                     receipt=record.order_idempotency_key,
                 )
-                record.status = MandateStatus.ORDER_CREATED
                 record.razorpay_order_id = rzp_order["id"]
+                transition(record, MandateStatus.ORDER_CREATED, db)
                 db.commit()
 
                 mandate_dict = {
@@ -287,14 +289,16 @@ def escalate_and_pay(
             db=db,
         )
 
+        # Pre-flight write to ORDER_CREATING and create mock Razorpay order (FSM)
+        transition(record, MandateStatus.ORDER_CREATING, db)
         rzp = RazorpayClient(mock_mode=True)
         rzp_order = rzp.create_order(
             amount_paise=record.authorized_amount_paise,
             currency="INR",
             receipt=record.order_idempotency_key,
         )
-        record.status = MandateStatus.ORDER_CREATED
         record.razorpay_order_id = rzp_order["id"]
+        transition(record, MandateStatus.ORDER_CREATED, db)
         db.commit()
 
         mandate_dict = {

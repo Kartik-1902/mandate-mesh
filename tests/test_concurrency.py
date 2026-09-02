@@ -225,8 +225,10 @@ def test_concurrent_webhook_dedup(db_session, engine, test_keys):
         intent_jwt, cart_jwt, "tx_wh_concurrent_01",
         test_keys["user"][1], test_keys["merchant"][1], test_keys["platform"][0], db
     )
-    record.status = MandateStatus.ORDER_CREATED
+    from app.mandate_fsm import transition
+    transition(record, MandateStatus.ORDER_CREATING, db)
     record.razorpay_order_id = "order_wh_race_001"
+    transition(record, MandateStatus.ORDER_CREATED, db)
     db.commit()
     db.close()
 
