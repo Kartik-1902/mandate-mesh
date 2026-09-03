@@ -688,6 +688,16 @@ def authorize_plan(
                 "authorized_amount_paise": cart.total_paise,
                 "intent_hash": intent_hash,
                 "cart_hash": cart.cart_hash,
+                "line_items": [
+                    {
+                        "sku": it.sku,
+                        "name": it.name,
+                        "unit_price_paise": it.unit_price_paise,
+                        "quantity": it.quantity,
+                        "category": it.category,
+                    }
+                    for it in cart.line_items
+                ],
             },
             actor="system:policy-rail",
         )
