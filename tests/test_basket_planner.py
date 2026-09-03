@@ -337,8 +337,8 @@ def test_plan_mixed_basket_no_financial_authorization_side_effects(db_session):
     assert mandate_ledger_entries == 0
 
 
-def test_plan_mixed_basket_spend_cap_exceeded_behavior(db_session):
-    """Spend cap evaluation: Plan is constructed but flagged when exceeding spend cap."""
+def test_m6_commercial_plan_is_feasible_regardless_of_spend_cap(db_session):
+    """Requirement 1 & 2 & 3: A commercially feasible basket remains a valid M6 plan and calculates correct total."""
     # Chocolate cake (₹890) + Macarons (₹650) = ₹1,540 (154,000 paise)
     proposed = [
         {"product_id": CANONICAL_CHOCOLATE_CAKE_ID, "quantity": 1},
@@ -346,20 +346,69 @@ def test_plan_mixed_basket_spend_cap_exceeded_behavior(db_session):
     ]
     allowed = ["merchant_sweetdelight_02", "merchant_artisan_03"]
 
-    # Spend cap: ₹1,000 (100,000 paise)
+    # M6 MixedBasketPlanner executes pure commercial planning
     plan = plan_mixed_basket(
         proposed_items=proposed,
         allowed_merchant_ids=allowed,
         db=db_session,
-        spend_cap_paise=100000,
     )
 
-    assert plan.is_feasible is False
-    assert plan.status == BasketPlanStatus.SPEND_CAP_EXCEEDED
-    assert plan.spend_cap_exceeded is True
-    assert plan.overspend_paise == 54000  # 154,000 - 100,000
-    assert len(plan.legs) == 2  # Legs are still computed for HITL escalation visibility
-    assert "exceeds spend cap" in plan.rejection_reason
+    # 1. Commercial feasibility is True
+    assert plan.is_feasible is True
+    assert plan.status == BasketPlanStatus.FEASIBLE
+
+    # 2. M6 correctly computes authoritative plan total
+    assert plan.total_price_paise == 154000
+    assert len(plan.legs) == 2
+
+
+def test_m5_policy_layer_handles_spend_cap_authorization_and_escalation(db_session):
+    """Requirement 4: Spend-cap authorization is strictly handled by the deterministic M5 policy layer."""
+    orchestrator = CommerceOrchestrator(db=db_session)
+    proposed = [
+        {"product_id": CANONICAL_CHOCOLATE_CAKE_ID, "quantity": 1},
+        {"product_id": CANONICAL_MACARONS_ID, "quantity": 1},
+    ]
+    allowed = ["merchant_sweetdelight_02", "merchant_artisan_03"]
+
+    # M6 produces valid commercial plan with total ₹1,540 (154,000 paise)
+    plan = orchestrator.plan_basket(
+        proposed_items=proposed,
+        allowed_merchant_ids=allowed,
+    )
+    assert plan.is_feasible is True
+    assert plan.total_price_paise == 154000
+
+    # Scenario A: Spend cap ₹2,000 (200,000 paise) -> AUTHORIZED by M5 policy layer
+    decision_auth = orchestrator.evaluate_basket_authorization(
+        plan=plan,
+        spend_cap_paise=200000,
+    )
+    assert decision_auth["status"] == "AUTHORIZED"
+    assert decision_auth["is_authorized"] is True
+    assert decision_auth["overspend_paise"] == 0
+    assert decision_auth["escalation_details"] is None
+
+    # Scenario B: Spend cap ₹1,000 (100,000 paise) -> REQUIRES_USER_APPROVAL by M5 policy layer
+    decision_escalate = orchestrator.evaluate_basket_authorization(
+        plan=plan,
+        spend_cap_paise=100000,
+    )
+    assert decision_escalate["status"] == "REQUIRES_USER_APPROVAL"
+    assert decision_escalate["is_authorized"] is False
+    assert decision_escalate["overspend_paise"] == 54000  # 154,000 - 100,000
+    assert decision_escalate["escalation_details"] is not None
+    assert decision_escalate["escalation_details"]["overspend_paise"] == 54000
+    assert "exceeds your Rs. 1000.00 budget by Rs. 540.00" in decision_escalate["escalation_details"]["message"]
+
+    # Combined helper pipeline test
+    combined_result = orchestrator.plan_and_evaluate_basket(
+        proposed_items=proposed,
+        allowed_merchant_ids=allowed,
+        spend_cap_paise=100000,
+    )
+    assert combined_result["status"] == "REQUIRES_USER_APPROVAL"
+    assert combined_result["plan"].is_feasible is True
 
 
 def test_plan_mixed_basket_output_stability_across_repeated_runs(db_session):
@@ -399,13 +448,12 @@ def test_commerce_orchestrator_plan_basket_integration(db_session):
         {"product_id": CANONICAL_MACARONS_ID, "quantity": 1},
     ]
 
-    # Total is ₹890 + ₹650 = ₹1,540 (154,000 paise). Spend cap ₹1,600 (160,000 paise)
     plan = orchestrator.plan_basket(
         proposed_items=proposed,
         allowed_merchant_ids=["merchant_cakehouse_01", "merchant_sweetdelight_02", "merchant_artisan_03"],
-        spend_cap_paise=160000,
     )
 
     assert plan.is_feasible is True
+    assert plan.status == BasketPlanStatus.FEASIBLE
     assert len(plan.legs) == 2
     assert plan.total_price_paise == 89000 + 65000

@@ -551,12 +551,11 @@ class CommerceOrchestrator:
 
     def plan_basket(
         self,
-        proposed_items: list[dict[str, Any]],
-        allowed_merchant_ids: list[str] | None = None,
-        spend_cap_paise: int | None = None,
+        proposed_items: Sequence[dict[str, Any]],
+        allowed_merchant_ids: Sequence[str] | None = None,
         policy: OptimizationPolicy = OptimizationPolicy.LOWEST_TOTAL_PRICE,
     ):
-        """Plans a deterministic mixed-basket allocation across allowed merchants (Milestone M6)."""
+        """Invokes M6 deterministic mixed-basket planner to produce a commercial plan and authoritative total."""
         from app.basket_planner import plan_mixed_basket
 
         merchants = allowed_merchant_ids or list_known_merchant_ids()
@@ -564,9 +563,98 @@ class CommerceOrchestrator:
             proposed_items=proposed_items,
             allowed_merchant_ids=merchants,
             db=self.db,
-            spend_cap_paise=spend_cap_paise,
             policy=policy,
             key_override_pem=self.merchant_private_key_pem,
+        )
+
+    def evaluate_basket_authorization(
+        self,
+        plan,
+        intent: UserIntentCredential | None = None,
+        spend_cap_paise: int | None = None,
+    ) -> dict[str, Any]:
+        """M5 deterministic policy layer: evaluates spend cap authorization on an M6 commercial plan.
+
+        Flow:
+          canonical product selections
+                  ↓
+          M6 deterministic mixed-basket planner (computes allocations + authoritative total)
+                  ↓
+          M5 deterministic policy / spend-cap evaluation
+                  ↓
+          authorized / requires approval / rejected
+        """
+        if not plan.is_feasible:
+            return {
+                "status": "REJECTED",
+                "is_authorized": False,
+                "plan": plan,
+                "spend_cap_paise": intent.spend_cap_paise if intent else spend_cap_paise,
+                "total_price_paise": plan.total_price_paise,
+                "overspend_paise": 0,
+                "rejection_reason": plan.rejection_reason or "Basket is commercially infeasible.",
+                "escalation_details": None,
+            }
+
+        cap = (
+            intent.spend_cap_paise
+            if intent is not None
+            else (spend_cap_paise if spend_cap_paise is not None else 150000)
+        )
+
+        if plan.total_price_paise <= cap:
+            return {
+                "status": "AUTHORIZED",
+                "is_authorized": True,
+                "plan": plan,
+                "spend_cap_paise": cap,
+                "total_price_paise": plan.total_price_paise,
+                "overspend_paise": 0,
+                "rejection_reason": None,
+                "escalation_details": None,
+            }
+        else:
+            overspend_paise = plan.total_price_paise - cap
+            escalation_details = {
+                "suggested_total_paise": plan.total_price_paise,
+                "current_budget_paise": cap,
+                "overspend_paise": overspend_paise,
+                "message": (
+                    f"Mixed-basket plan total of Rs. {plan.total_price_paise / 100:.2f} "
+                    f"exceeds your Rs. {cap / 100:.2f} budget by Rs. {overspend_paise / 100:.2f}. "
+                    f"User re-authorization required."
+                ),
+            }
+            return {
+                "status": "REQUIRES_USER_APPROVAL",
+                "is_authorized": False,
+                "plan": plan,
+                "spend_cap_paise": cap,
+                "total_price_paise": plan.total_price_paise,
+                "overspend_paise": overspend_paise,
+                "rejection_reason": escalation_details["message"],
+                "escalation_details": escalation_details,
+            }
+
+    def plan_and_evaluate_basket(
+        self,
+        proposed_items: Sequence[dict[str, Any]],
+        intent: UserIntentCredential | None = None,
+        allowed_merchant_ids: Sequence[str] | None = None,
+        spend_cap_paise: int | None = None,
+        policy: OptimizationPolicy = OptimizationPolicy.LOWEST_TOTAL_PRICE,
+    ) -> dict[str, Any]:
+        """Full M6 -> M5 pipeline: plans commercially (M6), then evaluates policy authorization (M5)."""
+        merchants = allowed_merchant_ids or (intent.allowed_merchant_ids if intent else list_known_merchant_ids())
+        plan = self.plan_basket(
+            proposed_items=proposed_items,
+            allowed_merchant_ids=merchants,
+            policy=policy,
+        )
+        return self.evaluate_basket_authorization(
+            plan=plan,
+            intent=intent,
+            spend_cap_paise=spend_cap_paise,
         )
 
 

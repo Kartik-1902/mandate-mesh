@@ -61,7 +61,6 @@ class BasketPlanStatus(str, Enum):
 
     FEASIBLE = "FEASIBLE"
     INFEASIBLE = "INFEASIBLE"
-    SPEND_CAP_EXCEEDED = "SPEND_CAP_EXCEEDED"
 
 
 class BasketItemRequest(BaseModel):
@@ -100,6 +99,8 @@ class MixedBasketPlan(BaseModel):
     SECURITY INVARIANT:
     This model represents a pure commercial plan. It does NOT authorize funds,
     create payment mandates, or execute payment gateways.
+    Spend-cap policy authorization is strictly decoupled and owned by the M5
+    deterministic policy layer.
     """
 
     plan_id: UUID = Field(default_factory=uuid4)
@@ -109,9 +110,6 @@ class MixedBasketPlan(BaseModel):
     total_items_count: int = 0
     total_price_paise: int = 0
     currency: str = "INR"
-    spend_cap_paise: int | None = None
-    spend_cap_exceeded: bool = False
-    overspend_paise: int = 0
     unavailable_product_ids: list[UUID] = Field(default_factory=list)
     rejection_reason: str | None = None
     optimization_policy: OptimizationPolicy = OptimizationPolicy.LOWEST_TOTAL_PRICE
@@ -123,7 +121,6 @@ def plan_mixed_basket(
     proposed_items: Sequence[dict[str, Any] | BasketItemRequest],
     allowed_merchant_ids: Sequence[str],
     db: Session,
-    spend_cap_paise: int | None = None,
     policy: OptimizationPolicy = OptimizationPolicy.LOWEST_TOTAL_PRICE,
     key_override_pem: bytes | str | Path | None = None,
 ) -> MixedBasketPlan:
@@ -324,24 +321,9 @@ def plan_mixed_basket(
             )
         )
 
-    # 6. Compute total price and validate spend cap
+    # 6. Compute authoritative plan total price
     total_price_paise = sum(leg.total_paise for leg in legs)
     total_items_count = sum(sum(it.quantity for it in leg.items) for leg in legs)
-
-    spend_cap_exceeded = False
-    overspend_paise = 0
-    status = BasketPlanStatus.FEASIBLE
-    rejection_reason = None
-
-    if spend_cap_paise is not None and total_price_paise > spend_cap_paise:
-        spend_cap_exceeded = True
-        overspend_paise = total_price_paise - spend_cap_paise
-        status = BasketPlanStatus.SPEND_CAP_EXCEEDED
-        rejection_reason = (
-            f"Total plan cost of ₹{total_price_paise / 100:.2f} ({total_price_paise} paise) "
-            f"exceeds spend cap of ₹{spend_cap_paise / 100:.2f} ({spend_cap_paise} paise) "
-            f"by ₹{overspend_paise / 100:.2f} ({overspend_paise} paise)."
-        )
 
     leg_descriptions = ", ".join(
         f"{leg.merchant_id} ({len(leg.items)} item(s), ₹{leg.total_paise / 100:.2f})"
@@ -354,17 +336,14 @@ def plan_mixed_basket(
 
     return MixedBasketPlan(
         plan_id=uuid4(),
-        is_feasible=(not spend_cap_exceeded),
-        status=status,
+        is_feasible=True,
+        status=BasketPlanStatus.FEASIBLE,
         legs=legs,
         total_items_count=total_items_count,
         total_price_paise=total_price_paise,
         currency="INR",
-        spend_cap_paise=spend_cap_paise,
-        spend_cap_exceeded=spend_cap_exceeded,
-        overspend_paise=overspend_paise,
         unavailable_product_ids=[],
-        rejection_reason=rejection_reason,
+        rejection_reason=None,
         optimization_policy=policy,
         decision_rationale=rationale,
     )
