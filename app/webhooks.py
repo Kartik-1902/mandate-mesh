@@ -200,6 +200,11 @@ def process_payment_webhook(
         intent_reg.reserved_paise -= amount_paise
         intent_reg.captured_paise += amount_paise
 
+        # Sync parent PurchasePlan status if linked
+        if mandate_record.plan:
+            from app.hitl_execution import sync_purchase_plan_status
+            sync_purchase_plan_status(mandate_record.plan, db)
+
         # Record deduplication entry
         webhook_event = WebhookEvent(
             razorpay_event_id=event_id,
@@ -288,6 +293,10 @@ def process_payment_webhook(
                     # Release reservation back to available budget
                     intent_reg.reserved_paise = max(0, intent_reg.reserved_paise - mandate_record.reserved_paise)
                     mandate_record.reserved_paise = 0
+
+                if mandate_record.plan:
+                    from app.hitl_execution import sync_purchase_plan_status
+                    sync_purchase_plan_status(mandate_record.plan, db)
 
                 webhook_event = WebhookEvent(
                     razorpay_event_id=event_id,

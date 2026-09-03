@@ -386,7 +386,24 @@ def authorize_plan(
             db.rollback()
         raise error
 
-    # 3. Detect duplicate PurchasePlan request / One-Plan-Per-Intent Invariant
+    # 3. Acquire exclusive row lock on IntentRegistry FIRST (serialization boundary)
+    is_postgres = False
+    try:
+        bind = db.get_bind()
+        if bind and bind.dialect.name == "postgresql":
+            is_postgres = True
+    except Exception:
+        pass
+
+    query = db.query(IntentRegistry).filter_by(intent_id=intent_id_str)
+    if is_postgres:
+        query = query.with_for_update()
+
+    intent_row = query.first()
+    if not intent_row:
+        raise PolicyViolation("POLICY_INTENT_NOT_FOUND", f"Intent {intent_id_str} not found in registry.")
+
+    # 4. Under row lock, enforce One-Plan-Per-Intent Invariant & Idempotency
     existing_plan_by_id = db.query(PurchasePlan).filter_by(plan_id=effective_plan_id).first()
     if existing_plan_by_id and existing_plan_by_id.intent_id != intent_id_str:
         _reject_plan_policy(
@@ -430,23 +447,6 @@ def authorize_plan(
                     f"A PurchasePlan '{existing_plan_for_intent.plan_id}' already exists for intent '{intent_id_str}'."
                 )
             )
-
-    # 4. Acquire exclusive row lock on IntentRegistry
-    is_postgres = False
-    try:
-        bind = db.get_bind()
-        if bind and bind.dialect.name == "postgresql":
-            is_postgres = True
-    except Exception:
-        pass
-
-    query = db.query(IntentRegistry).filter_by(intent_id=intent_id_str)
-    if is_postgres:
-        query = query.with_for_update()
-
-    intent_row = query.first()
-    if not intent_row:
-        raise PolicyViolation("POLICY_INTENT_NOT_FOUND", f"Intent {intent_id_str} not found in registry.")
 
     now = datetime.now(timezone.utc)
 
