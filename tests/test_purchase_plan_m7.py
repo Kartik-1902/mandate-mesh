@@ -674,3 +674,113 @@ def test_concurrent_plan_authorization_against_same_intent(engine, crypto_keys):
     # Exactly 1 succeeded, remaining rejected
     assert len(successes) == 1
     assert len(rejections) == 9
+
+
+def test_rejected_plan_leaves_zero_intent_registry_and_side_effects(db_session, crypto_keys):
+    """Audit Fix 1: A rejected plan rolls back cleanly and does not persist uncommitted IntentRegistry rows."""
+    now = datetime.now(timezone.utc)
+    new_intent_id = uuid4()
+    intent = UserIntentCredential(
+        intent_id=new_intent_id,
+        user_id="unregistered_buyer",
+        spend_cap_paise=100000,
+        currency="INR",
+        allowed_categories=["bakery"],
+        allowed_merchant_ids=["merchant_cakehouse_01"],
+        max_transactions=5,
+        nonce=f"nonce_fresh_{uuid4().hex}",
+        not_before=now - timedelta(minutes=5),
+        expires_at=now + timedelta(hours=2),
+    )
+    intent_jwt = issue_intent_jwt(intent, crypto_keys["user"]["private_key_pem"])
+
+    # Leg with an unauthorized category to force rejection
+    cart1, cjwt1 = make_signed_cart_jwt(
+        "merchant_cakehouse_01",
+        crypto_keys["merchant_1"],
+        db_session,
+        price_paise=30000,
+        category="electronics",  # Not allowed
+    )
+
+    plan_id = uuid4()
+    with pytest.raises(PolicyCategoryNotAllowed):
+        authorize_plan(
+            intent_jwt=intent_jwt,
+            legs=[{"merchant_id": "merchant_cakehouse_01", "cart_jwt": cjwt1}],
+            user_public_key_pem=crypto_keys["user"]["public_key_pem"],
+            platform_private_key_pem=crypto_keys["platform"]["private_key_pem"],
+            db=db_session,
+            plan_id=plan_id,
+            merchant_public_keys={"merchant_cakehouse_01": crypto_keys["merchant_1"]["public_key_pem"]},
+        )
+
+    # Invariant: Failed authorization leaves ZERO state in database
+    assert db_session.query(IntentRegistry).filter_by(intent_id=str(new_intent_id)).first() is None
+    assert db_session.query(PurchasePlan).filter_by(plan_id=plan_id).first() is None
+    assert db_session.query(MandateRecord).filter_by(plan_id=plan_id).count() == 0
+
+
+def test_same_intent_different_plan_id_is_rejected(db_session, crypto_keys):
+    """Audit Fix 2: An intent cannot create multiple PurchasePlans with different plan_ids."""
+    intent, intent_jwt = make_test_intent_jwt(crypto_keys["user"], db_session, spend_cap_paise=300000)
+    cart1, cjwt1 = make_signed_cart_jwt("merchant_cakehouse_01", crypto_keys["merchant_1"], db_session, price_paise=40000)
+
+    # First plan succeeds
+    plan_id_1 = uuid4()
+    plan1, m1, r1 = authorize_plan(
+        intent_jwt=intent_jwt,
+        legs=[{"merchant_id": "merchant_cakehouse_01", "cart_jwt": cjwt1}],
+        user_public_key_pem=crypto_keys["user"]["public_key_pem"],
+        platform_private_key_pem=crypto_keys["platform"]["private_key_pem"],
+        db=db_session,
+        plan_id=plan_id_1,
+        merchant_public_keys={"merchant_cakehouse_01": crypto_keys["merchant_1"]["public_key_pem"]},
+    )
+    assert plan1.plan_id == plan_id_1
+
+    # Second attempt with same intent but DIFFERENT plan_id must be rejected
+    plan_id_2 = uuid4()
+    cart2, cjwt2 = make_signed_cart_jwt("merchant_cakehouse_01", crypto_keys["merchant_1"], db_session, price_paise=50000)
+
+    with pytest.raises(PolicyViolation) as exc:
+        authorize_plan(
+            intent_jwt=intent_jwt,
+            legs=[{"merchant_id": "merchant_cakehouse_01", "cart_jwt": cjwt2}],
+            user_public_key_pem=crypto_keys["user"]["public_key_pem"],
+            platform_private_key_pem=crypto_keys["platform"]["private_key_pem"],
+            db=db_session,
+            plan_id=plan_id_2,
+            merchant_public_keys={"merchant_cakehouse_01": crypto_keys["merchant_1"]["public_key_pem"]},
+        )
+
+    assert exc.value.code == "POLICY_PLAN_EXISTS_FOR_INTENT"
+    assert db_session.query(PurchasePlan).filter_by(intent_id=str(intent.intent_id)).count() == 1
+    assert db_session.query(PurchasePlan).filter_by(plan_id=plan_id_2).first() is None
+
+
+def test_database_level_unique_constraint_on_purchase_plans_intent_id(db_session):
+    """Audit Fix 2 (Defense in Depth): Database rejects duplicate PurchasePlan for the same intent_id."""
+    from sqlalchemy.exc import IntegrityError
+
+    fixed_intent_id = str(uuid4())
+    plan1 = PurchasePlan(
+        plan_id=uuid4(),
+        intent_id=fixed_intent_id,
+        status="CONFIRMED",
+        total_authorized_paise=50000,
+    )
+    db_session.add(plan1)
+    db_session.commit()
+
+    # Attempting to insert another PurchasePlan with the same intent_id directly into DB must raise IntegrityError
+    plan2 = PurchasePlan(
+        plan_id=uuid4(),
+        intent_id=fixed_intent_id,
+        status="CONFIRMED",
+        total_authorized_paise=60000,
+    )
+    db_session.add(plan2)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()

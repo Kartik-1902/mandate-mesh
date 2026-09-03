@@ -364,56 +364,9 @@ def authorize_plan(
     intent = verify_intent(intent_jwt, user_public_key_pem, db)
     intent_id_str = str(intent.intent_id)
 
-    # 3. Detect duplicate PurchasePlan request (Plan-level Idempotency)
-    existing_plan = db.query(PurchasePlan).filter_by(plan_id=effective_plan_id).first()
-    if existing_plan:
-        if existing_plan.intent_id != intent_id_str:
-            raise PolicyViolation(
-                "POLICY_PLAN_INTENT_MISMATCH",
-                f"Plan '{effective_plan_id}' already exists under intent '{existing_plan.intent_id}', not '{intent_id_str}'."
-            )
-        existing_mandate_records = (
-            db.query(MandateRecord)
-            .filter_by(plan_id=effective_plan_id)
-            .order_by(MandateRecord.merchant_id.asc())
-            .all()
-        )
-        existing_mandates: list[PaymentMandate] = []
-        for rec in existing_mandate_records:
-            existing_mandates.append(
-                PaymentMandate(
-                    mandate_id=UUID(rec.mandate_id),
-                    intent_id=rec.intent_id,
-                    intent_hash=compute_intent_hash(intent),
-                    cart_hash=rec.cart_hash,
-                    merchant_id=rec.merchant_id,
-                    authorized_amount_paise=rec.authorized_amount_paise,
-                    currency="INR",
-                    created_at=rec.created_at,
-                    plan_id=effective_plan_id,
-                )
-            )
-        return existing_plan, existing_mandates, existing_mandate_records
-
-    # 4. Acquire exclusive row lock on IntentRegistry
-    is_postgres = False
-    try:
-        bind = db.get_bind()
-        if bind and bind.dialect.name == "postgresql":
-            is_postgres = True
-    except Exception:
-        pass
-
-    query = db.query(IntentRegistry).filter_by(intent_id=intent_id_str)
-    if is_postgres:
-        query = query.with_for_update()
-
-    intent_row = query.first()
-    if not intent_row:
-        raise PolicyViolation("POLICY_INTENT_NOT_FOUND", f"Intent {intent_id_str} not found in registry.")
-
     def _reject_plan_policy(error: PolicyViolation, merchant_id: str | None = None, requested_paise: int = 0) -> None:
-        """Helper to record forensic plan failure in audit ledger and roll back transaction."""
+        """Helper to record forensic plan failure in audit ledger after rolling back authorization state."""
+        db.rollback()
         try:
             append_entry(
                 db=db,
@@ -432,6 +385,68 @@ def authorize_plan(
         except Exception:
             db.rollback()
         raise error
+
+    # 3. Detect duplicate PurchasePlan request / One-Plan-Per-Intent Invariant
+    existing_plan_by_id = db.query(PurchasePlan).filter_by(plan_id=effective_plan_id).first()
+    if existing_plan_by_id and existing_plan_by_id.intent_id != intent_id_str:
+        _reject_plan_policy(
+            PolicyViolation(
+                "POLICY_PLAN_INTENT_MISMATCH",
+                f"Plan '{effective_plan_id}' already exists under intent '{existing_plan_by_id.intent_id}', not '{intent_id_str}'."
+            )
+        )
+
+    existing_plan_for_intent = db.query(PurchasePlan).filter_by(intent_id=intent_id_str).first()
+    if existing_plan_for_intent:
+        if existing_plan_for_intent.plan_id == effective_plan_id:
+            # Idempotent replay: return existing plan and child mandates
+            existing_mandate_records = (
+                db.query(MandateRecord)
+                .filter_by(plan_id=effective_plan_id)
+                .order_by(MandateRecord.merchant_id.asc())
+                .all()
+            )
+            existing_mandates: list[PaymentMandate] = []
+            for rec in existing_mandate_records:
+                existing_mandates.append(
+                    PaymentMandate(
+                        mandate_id=UUID(rec.mandate_id),
+                        intent_id=rec.intent_id,
+                        intent_hash=compute_intent_hash(intent),
+                        cart_hash=rec.cart_hash,
+                        merchant_id=rec.merchant_id,
+                        authorized_amount_paise=rec.authorized_amount_paise,
+                        currency="INR",
+                        created_at=rec.created_at,
+                        plan_id=effective_plan_id,
+                    )
+                )
+            return existing_plan_for_intent, existing_mandates, existing_mandate_records
+        else:
+            # A different PurchasePlan already exists for this intent -> Reject
+            _reject_plan_policy(
+                PolicyViolation(
+                    "POLICY_PLAN_EXISTS_FOR_INTENT",
+                    f"A PurchasePlan '{existing_plan_for_intent.plan_id}' already exists for intent '{intent_id_str}'."
+                )
+            )
+
+    # 4. Acquire exclusive row lock on IntentRegistry
+    is_postgres = False
+    try:
+        bind = db.get_bind()
+        if bind and bind.dialect.name == "postgresql":
+            is_postgres = True
+    except Exception:
+        pass
+
+    query = db.query(IntentRegistry).filter_by(intent_id=intent_id_str)
+    if is_postgres:
+        query = query.with_for_update()
+
+    intent_row = query.first()
+    if not intent_row:
+        raise PolicyViolation("POLICY_INTENT_NOT_FOUND", f"Intent {intent_id_str} not found in registry.")
 
     now = datetime.now(timezone.utc)
 
@@ -684,5 +699,13 @@ def authorize_plan(
         intent_row.status = IntentStatus.EXHAUSTED
 
     # D. Commit transaction exactly once
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        raise PolicyViolation(
+            "POLICY_PLAN_INTENT_COLLISION",
+            f"Failed to create PurchasePlan: intent '{intent_id_str}' already has an authorized plan."
+        ) from e
+
     return purchase_plan, mandates, mandate_records

@@ -28,8 +28,9 @@ def upgrade() -> None:
         sa.Column('total_authorized_paise', sa.BigInteger(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
         sa.PrimaryKeyConstraint('plan_id'),
+        sa.UniqueConstraint('intent_id', name='uq_purchase_plans_intent_id'),
     )
-    op.create_index(op.f('ix_purchase_plans_intent_id'), 'purchase_plans', ['intent_id'], unique=False)
+    op.create_index(op.f('ix_purchase_plans_intent_id'), 'purchase_plans', ['intent_id'], unique=True)
 
     # 2. Add nullable plan_id FK to mandate_records
     with op.batch_alter_table('mandate_records', schema=None) as batch_op:

@@ -115,7 +115,7 @@ class PurchasePlan(Base):
     __tablename__ = "purchase_plans"
 
     plan_id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    intent_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    intent_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True, index=True)
     status: Mapped[str] = mapped_column(String(32), default="CONFIRMED", nullable=False)
     total_authorized_paise: Mapped[int] = mapped_column(BigInteger, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
