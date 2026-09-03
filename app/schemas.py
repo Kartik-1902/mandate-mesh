@@ -79,6 +79,7 @@ class PaymentMandate(BaseModel):
     authorized_amount_paise: int = Field(gt=0)
     currency: Literal["INR"] = "INR"
     created_at: datetime
+    plan_id: UUID | None = Field(default=None, description="Optional aggregate purchase plan ID")
 
 
 class PaymentReceipt(BaseModel):

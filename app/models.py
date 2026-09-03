@@ -110,6 +110,21 @@ class IntentRegistry(Base):
         return self.spend_cap_paise - self.reserved_paise - self.captured_paise
 
 
+class PurchasePlan(Base):
+    """Aggregate purchase plan grouping multiple merchant execution legs (Milestone M7 / ADR-012)."""
+    __tablename__ = "purchase_plans"
+
+    plan_id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    intent_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="CONFIRMED", nullable=False)
+    total_authorized_paise: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    mandates: Mapped[list["MandateRecord"]] = relationship("MandateRecord", back_populates="plan")
+
+
 class MandateRecord(Base):
     """Mutable runtime state for one payment transaction."""
     __tablename__ = "mandate_records"
@@ -120,6 +135,9 @@ class MandateRecord(Base):
     id: Mapped[int] = mapped_column(PK_BIGINT, primary_key=True, autoincrement=True)
     mandate_id: Mapped[str] = mapped_column(String(36), unique=True, nullable=False)
     intent_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    plan_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("purchase_plans.plan_id"), nullable=True, index=True
+    )
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
     merchant_id: Mapped[str] = mapped_column(String(128), nullable=False)
     cart_hash: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -141,6 +159,8 @@ class MandateRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+    plan: Mapped[PurchasePlan | None] = relationship("PurchasePlan", back_populates="mandates")
 
 
 class WebhookEvent(Base):
