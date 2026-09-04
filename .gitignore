@@ -51,3 +51,7 @@ keys/**/*.pem
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+
+# Impeccable tool cache & critique logs
+.impeccable/
+
