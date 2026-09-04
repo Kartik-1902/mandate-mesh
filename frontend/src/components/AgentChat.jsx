@@ -45,13 +45,15 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
     try {
       const res = await escalateAndPay(
         agentState.cart_jwt,
-        agentState.escalation_details.suggested_total_paise
+        agentState.escalation_details.suggested_total_paise,
+        "user_control_tower_01",
+        agentState.escalation_details.suggested_merchant_id || null
       );
       setAgentState((prev) => ({
         ...prev,
         status: 'COMPLETED',
         escalation_resolved: true,
-        mandate: {
+        mandate: res.mandate || {
           mandate_id: res.mandate_id,
           authorized_amount_paise: res.authorized_amount_paise,
           status: res.status,

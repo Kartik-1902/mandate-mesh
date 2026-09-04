@@ -15,12 +15,15 @@ export default function MandateChainVisualizer({ activeMandate, onCaptureSuccess
   };
 
   const handleCapture = async () => {
-    if (!activeMandate?.razorpay_order_id) return;
+    if (!activeMandate?.razorpay_order_id || !activeMandate?.authorized_amount_paise) {
+      alert('Cannot emit capture webhook: Missing active authorized mandate or amount.');
+      return;
+    }
     setCapturing(true);
     try {
       const res = await simulateCapture(
         activeMandate.razorpay_order_id,
-        activeMandate.authorized_amount_paise || 94000
+        activeMandate.authorized_amount_paise
       );
       setReceiptData(res);
       setSelectedHop('receipt');

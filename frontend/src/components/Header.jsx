@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, Activity, RotateCcw } from 'lucide-react';
+import { ShieldCheck, Activity, RotateCcw, BookOpen } from 'lucide-react';
 
-export default function Header({ chainValid, isLive = true, onResetSession }) {
+export default function Header({
+  chainValid,
+  isLive = true,
+  onResetSession,
+  onToggleSpecDrawer,
+  hasSeenGuide = true,
+}) {
   const [clockIST, setClockIST] = useState('');
 
   useEffect(() => {
@@ -111,6 +117,37 @@ export default function Header({ chainValid, isLive = true, onResetSession }) {
               {clockIST || 'IST'}
             </div>
           </div>
+
+          {/* Spec & Pitch Deck Trigger */}
+          {onToggleSpecDrawer && (
+            <button
+              onClick={onToggleSpecDrawer}
+              className="btn btn-primary"
+              title="Open Project Architecture Spec & 5-Minute Live Demo Controller"
+              style={{
+                fontSize: '0.68rem',
+                padding: '4px 10px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
+            >
+              <BookOpen size={11} />
+              <span>[ SPEC // DEMO ]</span>
+              {!hasSeenGuide && (
+                <span
+                  style={{
+                    width: '6px',
+                    height: '6px',
+                    background: 'var(--accent-amber)',
+                    display: 'inline-block',
+                    marginLeft: '2px',
+                  }}
+                  title="First-time visitor guide available"
+                />
+              )}
+            </button>
+          )}
 
           {onResetSession && (
             <button

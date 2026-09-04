@@ -5,6 +5,8 @@ import CompetitiveQuotePanel from './components/CompetitiveQuotePanel';
 import MandateChainVisualizer from './components/MandateChainVisualizer';
 import AttackSimulator from './components/AttackSimulator';
 import AuditLedgerTable from './components/AuditLedgerTable';
+import SpecDrawer from './components/SpecDrawer';
+import { deliberateGoal, triggerAttack, verifyLedgerChain } from './services/api';
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -43,6 +45,14 @@ export default function App() {
   const [chainValid, setChainValid] = useState(true);
   const [sessionKey, setSessionKey] = useState(0);
 
+  // First-visit auto-open or ?demo=true URL parameter override
+  const searchParams = new URLSearchParams(window.location.search);
+  const forceDemo = searchParams.get('demo') === 'true';
+  const hasSeenGuide = Boolean(localStorage.getItem('mandate_mesh_guide_seen'));
+
+  const [isDrawerOpen, setIsDrawerOpen] = useState(forceDemo || !hasSeenGuide);
+  const [isMacroExecuting, setIsMacroExecuting] = useState(false);
+
   const handleAgentDeliberate = (res) => {
     if (res.routing_decision) {
       setRoutingDecision(res.routing_decision);
@@ -63,12 +73,15 @@ export default function App() {
   };
 
   const handleEscalateSuccess = (res) => {
+    const mandate = res.mandate || res;
+    if (!mandate) return;
     setActiveMandate({
-      mandate_id: res.mandate_id,
-      intent_hash: res.intent_hash,
-      cart_hash: res.cart_hash,
-      authorized_amount_paise: res.authorized_amount_paise,
-      razorpay_order_id: res.razorpay_order_id,
+      mandate_id: mandate.mandate_id,
+      intent_id: mandate.intent_id,
+      intent_hash: mandate.intent_hash,
+      cart_hash: mandate.cart_hash,
+      authorized_amount_paise: mandate.authorized_amount_paise,
+      razorpay_order_id: res.razorpay_order_id || mandate.razorpay_order_id,
       receipt_reference: res.receipt_reference,
     });
   };
@@ -85,10 +98,76 @@ export default function App() {
     triggerLedgerReload();
   };
 
+  // Spec Drawer controls & live demo macro runners
+  const handleCloseDrawer = () => {
+    localStorage.setItem('mandate_mesh_guide_seen', 'true');
+    setIsDrawerOpen(false);
+  };
+
+  const handleToggleDrawer = () => {
+    setIsDrawerOpen((prev) => !prev);
+  };
+
+  const handleRunGoldenPurchase = async () => {
+    setIsMacroExecuting(true);
+    try {
+      const res = await deliberateGoal('Order a 1kg chocolate cake under Rs. 1500 comparing all bakeries');
+      handleAgentDeliberate(res);
+      triggerLedgerReload();
+      return {
+        message: `Autonomous mandate ${res.mandate?.mandate_id || 'issued'} authorized for ₹${((res.mandate?.authorized_amount_paise || 0) / 100).toFixed(2)}.`,
+      };
+    } finally {
+      setIsMacroExecuting(false);
+    }
+  };
+
+  const handleRunAttack = async () => {
+    setIsMacroExecuting(true);
+    try {
+      const res = await triggerAttack(2);
+      triggerLedgerReload();
+      return {
+        message: res.message || 'Injection blocked: HTTP 404 CATALOG_SKU_NOT_FOUND. 0 Rupees Moved.',
+      };
+    } finally {
+      setIsMacroExecuting(false);
+    }
+  };
+
+  const handleVerifyLedger = async () => {
+    setIsMacroExecuting(true);
+    try {
+      const res = await verifyLedgerChain();
+      setChainValid(res.chain_valid);
+      triggerLedgerReload();
+      return {
+        message: `Audit chain verified: ${res.total_blocks} blocks, 100% linear SHA-256 continuity.`,
+      };
+    } finally {
+      setIsMacroExecuting(false);
+    }
+  };
+
   return (
     <div className="control-tower-container">
       {/* 1. Header & Live Indicator Banner */}
-      <Header chainValid={chainValid} onResetSession={handleResetSession} />
+      <Header
+        chainValid={chainValid}
+        onResetSession={handleResetSession}
+        onToggleSpecDrawer={handleToggleDrawer}
+        hasSeenGuide={hasSeenGuide}
+      />
+
+      {/* Spec Drawer & Interactive Pitch / Demo Controller */}
+      <SpecDrawer
+        isOpen={isDrawerOpen}
+        onClose={handleCloseDrawer}
+        onRunGoldenPurchase={handleRunGoldenPurchase}
+        onRunAttack={handleRunAttack}
+        onVerifyLedger={handleVerifyLedger}
+        isExecuting={isMacroExecuting}
+      />
 
       {/* 2. Primary Operations Grid */}
       <div className="main-grid">

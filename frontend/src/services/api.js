@@ -26,16 +26,19 @@ export async function deliberateGoal(goal, initialBudgetPaise = null, allowedMer
   return res.json();
 }
 
-export async function escalateAndPay(cartJwt, approvedBudgetPaise, userId = "user_control_tower_01", merchantId = "merchant_cakehouse_01") {
+export async function escalateAndPay(cartJwt, approvedBudgetPaise, userId = "user_control_tower_01", merchantId = null) {
+  const payload = {
+    cart_jwt: cartJwt,
+    approved_budget_paise: approvedBudgetPaise,
+    user_id: userId,
+  };
+  if (merchantId) {
+    payload.merchant_id = merchantId;
+  }
   const res = await fetch(`${API_BASE}/agent/escalate-and-pay`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      cart_jwt: cartJwt,
-      approved_budget_paise: approvedBudgetPaise,
-      user_id: userId,
-      merchant_id: merchantId,
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const err = await res.json();
