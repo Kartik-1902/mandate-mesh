@@ -1,54 +1,47 @@
 import React, { useState } from 'react';
-import { Skull, ShieldAlert, ShieldCheck, Play, CheckCircle2, Lock } from 'lucide-react';
+import { Skull, ShieldAlert, CheckCircle2, Terminal } from 'lucide-react';
 import { triggerAttack } from '../services/api';
 
 export default function AttackSimulator({ onAttackSuccess, onLedgerChange }) {
-  const [activeAttack, setActiveAttack] = useState(null);
   const [loadingAttackId, setLoadingAttackId] = useState(null);
   const [attackResult, setAttackResult] = useState(null);
 
   const attacks = [
     {
       id: 1,
-      name: 'Attack 1: Over-Budget Spend',
-      desc: 'Agent attempts luxury ₹4,940 cake against ₹1,500 budget.',
+      name: 'VECTOR 01: OVER-BUDGET SPEND',
+      desc: 'Agent attempts luxury ₹4,940 cake against ₹1,500 budget cap.',
       expected: 'HTTP 403 · POLICY_SPEND_CAP_EXCEEDED',
-      color: '#ef4444',
     },
     {
       id: 2,
-      name: 'Attack 2: Prompt Injection Fake SKU',
+      name: 'VECTOR 02: PROMPT INJECTION SKU',
       desc: 'Prompt requests unapproved "GOLD-COIN" to bypass catalog.',
       expected: 'HTTP 404 · CATALOG_SKU_NOT_FOUND',
-      color: '#f59e0b',
     },
     {
       id: 3,
-      name: 'Attack 3: MITM Cart Tampering',
+      name: 'VECTOR 03: MITM CART TAMPERING',
       desc: 'Attacker modifies total_paise inside signed cart JWT in transit.',
       expected: 'HTTP 409 · POLICY_CART_SIGNATURE_INVALID',
-      color: '#a855f7',
     },
     {
       id: 4,
-      name: 'Attack 4: Webhook Replay Replay',
+      name: 'VECTOR 04: WEBHOOK REPLAY ATTACK',
       desc: 'Replays payment.captured webhook 3x to trigger double debit.',
       expected: 'HTTP 200 · DEDUPLICATED (0 Double Debits)',
-      color: '#00f0ff',
     },
     {
       id: 5,
-      name: 'Attack 5: Cross-Merchant Key Forgery',
+      name: 'VECTOR 05: CROSS-MERCHANT KEY FORGERY',
       desc: 'Submits Sweet Delight signature under CakeHouse identity.',
       expected: 'HTTP 409 · POLICY_CART_SIGNATURE_INVALID',
-      color: '#ec4899',
     },
     {
       id: 6,
-      name: 'Attack 6: Expired Quote Replay',
+      name: 'VECTOR 06: EXPIRED QUOTE REPLAY',
       desc: 'Attempts to authorize expired cart quote after TTL expiration.',
       expected: 'HTTP 409 · POLICY_CART_EXPIRED',
-      color: '#f97316',
     },
   ];
 
@@ -72,93 +65,104 @@ export default function AttackSimulator({ onAttackSuccess, onLedgerChange }) {
   };
 
   return (
-    <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      
+    <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', borderTop: '3px solid var(--accent-red)' }}>
+      <div className="hazard-stripe-bar" style={{ marginTop: '-16px', marginLeft: '-16px', marginRight: '-16px', width: 'calc(100% + 32px)' }} />
+
       {/* Header */}
-      <div className="panel-card-header">
+      <div className="panel-card-header" style={{ marginBottom: 0 }}>
         <div className="panel-title">
-          <Skull size={20} className="text-red" />
-          <span>Adversarial Threat Simulator (1-Click Judge Playground)</span>
+          <Skull size={16} color="var(--accent-red)" />
+          <span>ADVERSARIAL THREAT BENCH // FAIL-CLOSED VERIFICATION</span>
         </div>
-        <span className="badge badge-red">Fails Closed Guaranteed</span>
+        <span className="badge badge-red">FAIL-CLOSED ENFORCED</span>
       </div>
 
-      {/* Attack Buttons Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
-        {attacks.map((atk) => (
-          <div
-            key={atk.id}
-            style={{
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: 'var(--radius-md)',
-              padding: '14px',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-              gap: '10px',
-              transition: 'all 0.2s ease',
-            }}
-          >
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <strong style={{ fontSize: '0.88rem' }}>{atk.name}</strong>
-              </div>
-              <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{atk.desc}</p>
-            </div>
+      {/* Vector Trigger Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+        {attacks.map((atk) => {
+          const isLoading = loadingAttackId === atk.id;
 
-            <div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '8px' }} className="font-mono">
-                {atk.expected}
-              </div>
-              <button
-                className="btn btn-secondary"
-                onClick={() => handleRunAttack(atk.id)}
-                disabled={loadingAttackId === atk.id}
-                style={{ width: '100%', fontSize: '0.8rem', padding: '6px 12px' }}
-              >
-                <Play size={14} />
-                {loadingAttackId === atk.id ? 'Attacking...' : 'Run Attack'}
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Live Rejection Outcome Banner */}
-      {attackResult && (
-        <div style={{
-          background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(15, 23, 42, 0.6))',
-          border: '1px solid var(--accent-red)',
-          borderRadius: 'var(--radius-lg)',
-          padding: '18px',
-          boxShadow: '0 0 24px rgba(239, 68, 68, 0.2)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <ShieldAlert size={24} className="text-red" />
+          return (
+            <div
+              key={atk.id}
+              style={{
+                background: 'var(--bg-recessed)',
+                border: '1px solid var(--border-line)',
+                padding: '12px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                gap: '8px',
+              }}
+            >
               <div>
-                <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  Threat Model Neutralized: {attackResult.name}
-                </h4>
-                <p className="font-mono text-muted" style={{ fontSize: '0.75rem' }}>
-                  Outcome: {attackResult.outcome} · HTTP {attackResult.http_status} ({attackResult.error_code})
+                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-phosphor)' }}>
+                  {atk.name}
+                </div>
+                <p style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: 1.35 }}>
+                  {atk.desc}
                 </p>
               </div>
-            </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span className="badge badge-green" style={{ fontSize: '0.8rem', padding: '6px 12px' }}>
-                <CheckCircle2 size={14} /> ₹0.00 Unauthorized Money Moved
+              <div style={{
+                background: 'var(--bg-terminal)',
+                padding: '4px 6px',
+                border: '1px solid var(--border-dim)',
+                fontSize: '0.65rem',
+                color: 'var(--text-muted)',
+              }}>
+                EXPECTED: <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{atk.expected}</span>
+              </div>
+
+              <button
+                className="btn btn-danger"
+                onClick={() => handleRunAttack(atk.id)}
+                disabled={isLoading}
+                style={{ fontSize: '0.7rem', padding: '6px 10px', width: '100%' }}
+              >
+                {isLoading ? 'SIMULATING VECTOR...' : `[ LAUNCH VECTOR 0${atk.id} ]`}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Threat Diagnostic Output Console */}
+      {attackResult && (
+        <div style={{
+          background: 'var(--bg-recessed)',
+          border: '1px solid var(--border-bright)',
+          borderLeft: '4px solid var(--accent-red)',
+          padding: '12px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Terminal size={14} color="var(--accent-red)" />
+              <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-red)', textTransform: 'uppercase' }}>
+                [ THREAT INTERCEPT DIAGNOSTIC RESULT ]
               </span>
             </div>
+            <span className="badge badge-green" style={{ fontSize: '0.65rem' }}>
+              INVARIANT PRESERVED · 0 RUPEES MOVED
+            </span>
           </div>
 
-          <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-            <strong>Deterministic Reason:</strong> {attackResult.message}
+          <div style={{
+            background: 'var(--bg-terminal)',
+            border: '1px solid var(--border-line)',
+            padding: '10px',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '0.72rem',
+            color: 'var(--text-secondary)',
+            maxHeight: '180px',
+            overflowY: 'auto',
+          }}>
+            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {JSON.stringify(attackResult, null, 2)}
+            </pre>
           </div>
         </div>
       )}

@@ -1,72 +1,138 @@
-import React from 'react';
-import { ShieldCheck, Zap, Activity, Lock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ShieldCheck, Zap, Activity, Terminal, Lock } from 'lucide-react';
 
 export default function Header({ chainValid, isLive = true }) {
+  const [clockIST, setClockIST] = useState('');
+
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      setClockIST(
+        now.toLocaleTimeString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        }) + ' IST'
+      );
+    };
+    updateTime();
+    const timer = setInterval(updateTime, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   return (
-    <header className="panel-card" style={{ padding: '16px 24px' }}>
+    <header className="panel-card" style={{ padding: '14px 18px', borderBottom: '2px solid var(--border-bright)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
         
-        {/* Brand & Invariant */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        {/* Masthead: Macro-Typography & Terminal ID */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <div style={{
-            background: 'linear-gradient(135deg, #00f0ff, #0077ff)',
-            padding: '10px',
-            borderRadius: '12px',
-            boxShadow: '0 0 20px rgba(0, 240, 255, 0.4)',
+            background: 'var(--text-phosphor)',
+            color: 'var(--bg-terminal)',
+            padding: '8px 10px',
+            fontFamily: 'var(--font-mono)',
+            fontWeight: 900,
+            fontSize: '14px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            letterSpacing: '0.05em',
           }}>
-            <Lock size={24} color="#050914" />
+            [MM]
           </div>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <h1 style={{ fontSize: '1.4rem', fontWeight: '800', letterSpacing: '-0.02em', background: 'linear-gradient(to right, #ffffff, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
+              <h1 style={{
+                fontFamily: 'var(--font-macro)',
+                fontSize: '1.5rem',
+                letterSpacing: '-0.04em',
+                lineHeight: 1,
+                color: 'var(--text-phosphor)',
+              }}>
                 MANDATE MESH
               </h1>
-              <span className="badge badge-cyan">CONTROL TOWER</span>
+              <span className="badge badge-steel" style={{ fontSize: '0.68rem', padding: '1px 6px' }}>
+                TACTICAL CONTROL TOWER // REV 2.4
+              </span>
             </div>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Track 01: AI Growth & Agentic Commerce · Razorpay Buildathon
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              AGENTIC COMMERCE GUARDRAILS & DETERMINISTIC MULTI-MERCHANT ROUTING
             </p>
           </div>
         </div>
 
-        {/* Security Invariant Pill */}
+        {/* Security Invariant Framing */}
         <div style={{
-          background: 'rgba(15, 23, 42, 0.8)',
-          border: '1px solid var(--border-glow)',
-          borderRadius: 'var(--radius-md)',
-          padding: '8px 16px',
+          background: 'var(--bg-recessed)',
+          border: '1px solid var(--border-line)',
+          borderLeft: '3px solid var(--accent-red)',
+          padding: '8px 14px',
           display: 'flex',
           alignItems: 'center',
-          gap: '12px',
-          maxWidth: '520px',
+          gap: '10px',
+          maxWidth: '560px',
         }}>
-          <ShieldCheck size={18} className="text-cyan" style={{ flexShrink: 0 }} />
-          <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.3 }}>
-            <strong className="text-cyan">Core Invariant:</strong> <em>The LLM proposes; deterministic Python disposes. An unauthorized rupee can never move.</em>
+          <ShieldCheck size={16} color="var(--accent-red)" style={{ flexShrink: 0 }} />
+          <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-secondary)', lineHeight: 1.3, letterSpacing: '0.02em' }}>
+            <span style={{ color: 'var(--accent-red)', fontWeight: 800 }}>[ CORE INVARIANT ]</span>
+            <br />
+            THE LLM PROPOSES /// DETERMINISTIC PYTHON DISPOSES. ZERO UNAUTHORIZED RUPEES MOVE.
           </p>
         </div>
 
-        {/* Live System Status Badges */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-surface)', padding: '6px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
-            <div className="pulse-dot pulse-dot-green" />
-            <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>Backend API :8000</span>
+        {/* Hardware Status & Telemetry Readouts */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          
+          {/* Clock */}
+          <div style={{
+            background: 'var(--bg-recessed)',
+            border: '1px solid var(--border-line)',
+            padding: '5px 10px',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '0.72rem',
+            color: 'var(--text-muted)',
+            letterSpacing: '0.08em',
+          }}>
+            <span style={{ color: 'var(--text-secondary)' }}>SYS/TIME: </span>
+            <span style={{ color: 'var(--text-phosphor)', fontWeight: 700 }}>{clockIST || 'IST'}</span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-surface)', padding: '6px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
-            <Zap size={14} className="text-amber" />
-            <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>Razorpay Test Mode</span>
+          {/* Backend API */}
+          <div style={{
+            background: 'var(--bg-recessed)',
+            border: '1px solid var(--border-line)',
+            padding: '5px 10px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '0.72rem',
+          }}>
+            <div className="pulse-dot" />
+            <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>API:8000</span>
+            <span style={{ color: 'var(--accent-terminal)', fontWeight: 800 }}>[ONLINE]</span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-surface)', padding: '6px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
-            <Activity size={14} className={chainValid ? 'text-green' : 'text-red'} />
-            <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>
-              Ledger: {chainValid ? '100% Linear' : 'Check Chain'}
+          {/* Ledger Chain */}
+          <div style={{
+            background: 'var(--bg-recessed)',
+            border: '1px solid var(--border-line)',
+            padding: '5px 10px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '0.72rem',
+          }}>
+            <Activity size={12} color={chainValid ? 'var(--accent-terminal)' : 'var(--accent-red)'} />
+            <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>CHAIN:</span>
+            <span style={{ color: chainValid ? 'var(--accent-terminal)' : 'var(--accent-red)', fontWeight: 800 }}>
+              {chainValid ? 'SECURE' : 'ALTERED'}
             </span>
           </div>
+
         </div>
 
       </div>

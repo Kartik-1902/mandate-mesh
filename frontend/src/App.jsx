@@ -95,7 +95,7 @@ export default function App() {
         </div>
 
         {/* Right: Competitive Quotes + Cryptographic Mandate Chain + Adversarial Attack Playground */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <ErrorBoundary>
             <CompetitiveQuotePanel
               routingDecision={routingDecision}

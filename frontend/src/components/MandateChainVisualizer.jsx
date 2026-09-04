@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Layers, Key, FileCheck, Check, ArrowRight, ExternalLink, ShieldCheck, Zap } from 'lucide-react';
+import { Layers, Key, ShieldCheck, Check, ArrowRight, Zap, Terminal } from 'lucide-react';
 import { simulateCapture } from '../services/api';
 
 export default function MandateChainVisualizer({ activeMandate, onCaptureSuccess, onLedgerChange }) {
-  const [selectedHop, setSelectedHop] = useState(null);
+  const [selectedHop, setSelectedHop] = useState('mandate');
   const [capturing, setCapturing] = useState(false);
   const [receiptData, setReceiptData] = useState(null);
 
@@ -23,7 +23,7 @@ export default function MandateChainVisualizer({ activeMandate, onCaptureSuccess
         onLedgerChange();
       }
     } catch (err) {
-      alert(`Webhook capture failed: ${err.message}`);
+      alert(`Capture webhook failure: ${err.message}`);
     } finally {
       setCapturing(false);
     }
@@ -32,196 +32,187 @@ export default function MandateChainVisualizer({ activeMandate, onCaptureSuccess
   const hops = [
     {
       id: 'intent',
-      title: '1. User Intent',
-      signer: 'User (ES256)',
-      status: activeMandate ? 'VERIFIED' : 'PENDING',
-      color: '#00f0ff',
+      stepNum: '01',
+      title: 'USER INTENT CREDENTIAL',
+      signer: 'CLIENT NIST P-256',
+      status: activeMandate ? 'VERIFIED' : 'STANDBY',
       details: {
-        type: 'UserIntentCredential (JWT)',
-        signer_key: 'user:key-1 (NIST P-256)',
-        spend_cap: activeMandate ? `Rs. ${(activeMandate.authorized_amount_paise / 100).toFixed(2)}` : 'Rs. 1500.00',
-        allowed_merchants: ['merchant_cakehouse_01'],
-        intent_hash: activeMandate?.intent_hash || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        credential_type: 'UserIntentCredential (JWT)',
+        signer_key: 'user:client-key-01',
+        spend_cap: activeMandate ? `₹${(activeMandate.authorized_amount_paise / 100).toFixed(2)}` : '₹1500.00',
+        authorized_merchants: ['merchant_cakehouse_01'],
+        intent_sha256: activeMandate?.intent_hash || 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
       },
     },
     {
       id: 'cart',
-      title: '2. Signed Cart',
-      signer: 'Merchant (ES256)',
-      status: activeMandate ? 'VERIFIED' : 'PENDING',
-      color: '#a855f7',
+      stepNum: '02',
+      title: 'MERCHANT SIGNED CART',
+      signer: 'MERCHANT SECP256K1',
+      status: activeMandate ? 'VERIFIED' : 'STANDBY',
       details: {
-        type: 'MerchantSignedCart (JWT)',
-        signer_key: 'merchant:key-1 (NIST P-256)',
-        pricing_source: 'Authoritative Merchant Catalog (Zero LLM price input)',
-        cart_hash: activeMandate?.cart_hash || 'b7e2a48f0a1c3d9e8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c',
+        credential_type: 'MerchantSignedCart (JWT)',
+        signer_key: 'merchant:key-cakehouse-01',
+        pricing_engine: 'Authoritative SQLite Catalog (Zero LLM price input)',
+        cart_sha256: activeMandate?.cart_hash || 'b7e2a48f0a1c3d9e8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c',
       },
     },
     {
       id: 'mandate',
-      title: '3. Payment Mandate',
-      signer: 'Platform (ES256)',
-      status: activeMandate ? 'AUTHORIZED' : 'PENDING',
-      color: '#10b981',
+      stepNum: '03',
+      title: 'PAYMENT MANDATE',
+      signer: 'PLATFORM PLAT-KEY-01',
+      status: activeMandate ? 'AUTHORIZED' : 'STANDBY',
       details: {
-        type: 'PaymentMandate (JWT)',
-        signer_key: 'platform:key-1 (NIST P-256)',
-        mandate_id: activeMandate?.mandate_id || 'Pending Authorization',
-        bound_cart_hash: activeMandate?.cart_hash || 'Pending',
-        bound_intent_hash: activeMandate?.intent_hash || 'Pending',
-        authorized_amount: activeMandate ? `Rs. ${(activeMandate.authorized_amount_paise / 100).toFixed(2)}` : 'Pending',
+        credential_type: 'PaymentMandate (FSM Active)',
+        signer_key: 'platform:core-signing-key',
+        mandate_id: activeMandate?.mandate_id || 'PENDING_AUTHORIZATION',
+        bound_cart_hash: activeMandate?.cart_hash || 'PENDING',
+        bound_intent_hash: activeMandate?.intent_hash || 'PENDING',
+        authorized_ceiling: activeMandate ? `₹${(activeMandate.authorized_amount_paise / 100).toFixed(2)}` : 'PENDING',
       },
     },
     {
       id: 'order',
-      title: '4. Razorpay Order',
-      signer: 'Gateway (Test Mode)',
-      status: activeMandate?.razorpay_order_id ? 'CREATED' : 'PENDING',
-      color: '#f59e0b',
+      stepNum: '04',
+      title: 'RAZORPAY ORDER',
+      signer: 'GATEWAY TEST HARNESS',
+      status: activeMandate?.razorpay_order_id ? 'CREATED' : 'STANDBY',
       details: {
-        type: 'Razorpay Orders API Entity',
-        razorpay_order_id: activeMandate?.razorpay_order_id || 'Pending Creation',
+        gateway_entity: 'Razorpay Orders API (orders.create)',
+        razorpay_order_id: activeMandate?.razorpay_order_id || 'PENDING_CREATION',
         receipt_reference: activeMandate?.receipt_reference || `mm_${activeMandate?.mandate_id?.replace(/-/g, '') || ''}`,
-        currency: 'INR',
+        currency_code: 'INR',
       },
     },
     {
       id: 'receipt',
-      title: '5. Payment Receipt',
-      signer: 'Platform (ES256 Proof)',
-      status: receiptData ? 'CAPTURED & ISSUED' : (activeMandate?.razorpay_order_id ? 'READY_FOR_WEBHOOK' : 'PENDING'),
-      color: receiptData ? '#10b981' : '#64748b',
+      stepNum: '05',
+      title: 'PAYMENT RECEIPT',
+      signer: 'PLATFORM AUDIT PROOF',
+      status: receiptData ? 'CAPTURED' : (activeMandate?.razorpay_order_id ? 'AWAITING_WEBHOOK' : 'STANDBY'),
       details: {
-        type: 'PaymentReceipt (Platform Signed Proof)',
-        receipt_id: receiptData?.receipt_id || 'Awaiting payment.captured webhook',
-        captured_at: receiptData?.receipt?.captured_at || 'Pending',
-        hash_chained_trace: 'intent_hash -> cart_hash -> mandate_id -> razorpay_payment_id',
+        proof_type: 'PaymentReceipt (Platform Signed Proof)',
+        receipt_id: receiptData?.receipt_id || 'AWAITING_PAYMENT_CAPTURED_EVENT',
+        settlement_timestamp: receiptData?.receipt?.captured_at || 'PENDING',
+        hash_audit_trace: 'intent_hash -> cart_hash -> mandate_id -> razorpay_payment_id',
       },
     },
   ];
 
+  const currentHopData = hops.find((h) => h.id === selectedHop) || hops[2];
+
   return (
-    <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       
-      {/* Header */}
-      <div className="panel-card-header">
+      {/* Panel Header & Webhook Simulation Trigger */}
+      <div className="panel-card-header" style={{ marginBottom: 0 }}>
         <div className="panel-title">
-          <Layers size={20} className="text-cyan" />
-          <span>Cryptographic Mandate Chain Explorer</span>
+          <Layers size={16} color="var(--text-phosphor)" />
+          <span>CRYPTOGRAPHIC MANDATE CHAIN // 5-HOP STATE PIPELINE</span>
         </div>
-        <span className="badge badge-green">Dual-Layer ES256 & SHA-256</span>
-      </div>
 
-      {/* Visual Pipeline */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
-        {hops.map((hop, idx) => {
-          const isActive = hop.status !== 'PENDING';
-          return (
-            <div
-              key={hop.id}
-              onClick={() => setSelectedHop(hop)}
-              style={{
-                background: isActive ? 'var(--bg-surface)' : 'rgba(15, 23, 42, 0.4)',
-                border: `1px solid ${isActive ? hop.color : 'var(--border-subtle)'}`,
-                borderRadius: 'var(--radius-md)',
-                padding: '14px',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                boxShadow: isActive ? `0 0 16px ${hop.color}22` : 'none',
-              }}
-              onMouseOver={(e) => (e.currentTarget.style.transform = 'translateY(-2px)')}
-              onMouseOut={(e) => (e.currentTarget.style.transform = 'translateY(0)')}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: hop.color, textTransform: 'uppercase' }}>
-                  Hop #{idx + 1}
-                </span>
-                {isActive ? (
-                  <Check size={14} color={hop.color} />
-                ) : (
-                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--text-muted)' }} />
-                )}
-              </div>
-
-              <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '4px' }}>{hop.title}</h4>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{hop.signer}</p>
-              
-              <div style={{ marginTop: '10px' }}>
-                <span className={`badge ${isActive ? 'badge-green' : 'badge-amber'}`} style={{ fontSize: '0.65rem' }}>
-                  {hop.status}
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Webhook Capture Simulation Trigger */}
-      {activeMandate?.razorpay_order_id && !receiptData && (
-        <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid var(--accent-green)', borderRadius: 'var(--radius-md)', padding: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--accent-green)' }}>
-              Order Created on Gateway ({activeMandate.razorpay_order_id})
-            </span>
-            <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-              Simulate Razorpay sending the authentic <code>payment.captured</code> webhook to issue the final cryptographic receipt.
-            </p>
-          </div>
+        {activeMandate?.razorpay_order_id && !receiptData && (
           <button
             className="btn btn-success"
             onClick={handleCapture}
             disabled={capturing}
+            style={{ fontSize: '0.72rem', padding: '4px 10px' }}
           >
-            <Zap size={16} />
-            {capturing ? 'Capturing...' : 'Simulate Webhook Capture'}
+            {capturing ? 'SETTLING WEBHOOK...' : '[ EMIT: PAYMENT.CAPTURED WEBHOOK ]'}
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Receipt Completed Confirmation */}
-      {receiptData && (
-        <div style={{ background: 'rgba(16, 185, 129, 0.12)', border: '1px solid var(--accent-green)', borderRadius: 'var(--radius-md)', padding: '14px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <ShieldCheck size={24} className="text-green" />
-          <div>
-            <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--accent-green)' }}>
-              Cryptographic Payment Proof Verified
-            </h4>
-            <p className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-              Receipt ID: {receiptData.receipt_id} (Captured Rs. {(activeMandate?.authorized_amount_paise / 100).toFixed(2)})
-            </p>
-          </div>
-        </div>
-      )}
+      {/* 5-Hop Hardware Register Sequence */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px' }}>
+        {hops.map((hop) => {
+          const isSelected = selectedHop === hop.id;
+          const isVerified = hop.status === 'VERIFIED' || hop.status === 'AUTHORIZED' || hop.status === 'CREATED' || hop.status === 'CAPTURED';
 
-      {/* Expandable JSON Claims Inspector */}
-      {selectedHop && (
-        <div style={{
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border-glow)',
-          borderRadius: 'var(--radius-md)',
-          padding: '16px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '10px',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Key size={16} className="text-cyan" />
-              <strong style={{ fontSize: '0.9rem' }}>{selectedHop.title} Inspection</strong>
-            </div>
+          return (
             <button
-              onClick={() => setSelectedHop(null)}
-              style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.8rem' }}
+              key={hop.id}
+              onClick={() => setSelectedHop(hop.id)}
+              style={{
+                background: isSelected ? 'var(--bg-surface)' : 'var(--bg-recessed)',
+                border: isSelected ? '1px solid var(--text-phosphor)' : '1px solid var(--border-line)',
+                borderTop: isVerified ? '3px solid var(--accent-terminal)' : '1px solid var(--border-line)',
+                padding: '10px 8px',
+                textAlign: 'left',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+                cursor: 'pointer',
+                transition: 'none',
+              }}
             >
-              Close ✕
-            </button>
-          </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 800 }}>
+                  REGISTER {hop.stepNum}
+                </span>
+                <span
+                  style={{
+                    fontSize: '0.62rem',
+                    fontWeight: 700,
+                    color: isVerified ? 'var(--accent-terminal)' : 'var(--text-dim)',
+                  }}
+                >
+                  [{hop.status}]
+                </span>
+              </div>
 
-          <pre className="code-block">
-            {JSON.stringify(selectedHop.details, null, 2)}
-          </pre>
+              <div style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-phosphor)', lineHeight: 1.2 }}>
+                {hop.title}
+              </div>
+
+              <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>
+                {hop.signer}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Register Telemetry Inspection Window */}
+      <div style={{
+        background: 'var(--bg-recessed)',
+        border: '1px solid var(--border-line)',
+        padding: '12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-dim)', paddingBottom: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Terminal size={14} color="var(--text-muted)" />
+            <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-phosphor)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              REGISTER INSPECTOR // {currentHopData.title}
+            </span>
+          </div>
+          <span className="badge badge-steel" style={{ fontSize: '0.65rem' }}>
+            SIGNER: {currentHopData.signer}
+          </span>
         </div>
-      )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '8px', fontSize: '0.72rem' }}>
+          {Object.entries(currentHopData.details).map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', flexDirection: 'column', gap: '2px', background: 'var(--bg-terminal)', padding: '6px 8px', border: '1px solid var(--border-dim)' }}>
+              <span style={{ color: 'var(--text-muted)', fontSize: '0.65rem', textTransform: 'uppercase' }}>
+                {k.replace(/_/g, ' ')}:
+              </span>
+              <span style={{
+                color: 'var(--text-phosphor)',
+                fontWeight: 600,
+                wordBreak: 'break-all',
+                fontFamily: 'var(--font-mono)',
+              }}>
+                {Array.isArray(v) ? v.join(', ') : String(v)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
 
     </div>
   );

@@ -375,10 +375,21 @@ def parse_goal_node(state: BuyerAgentState) -> dict[str, Any]:
     meaningful_words = [w for w in words if len(w) > 2 and not w.isdigit() and w.lower() not in stop_words]
     parsed["keywords"] = meaningful_words
 
-    if any(k.lower() in ["cake", "pastry", "bakery", "bread"] for k in words):
+    has_bakery = any(k.lower() in ["cake", "pastry", "bakery", "bread"] for k in words)
+    has_gifting = any(k.lower() in ["card", "gift", "candle", "greeting"] for k in words)
+    has_electronics = any(k.lower() in ["headphones", "tech", "electronics", "power"] for k in words)
+
+    matched_categories = sum([has_bakery, has_gifting, has_electronics])
+
+    if matched_categories > 1:
+        # Cross-category query: do not restrict catalog to a single category
+        parsed["category"] = None
+    elif has_bakery:
         parsed["category"] = "bakery"
-    elif any(k.lower() in ["card", "gift", "candle", "greeting"] for k in words):
+    elif has_gifting:
         parsed["category"] = "gifting"
+    elif has_electronics:
+        parsed["category"] = "electronics"
     else:
         parsed["category"] = None
 

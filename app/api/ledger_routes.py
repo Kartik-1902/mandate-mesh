@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.ledger import verify_chain
+from app.ledger import _normalize_iso, verify_chain
 from app.models import AuditLedgerEntry
 
 router = APIRouter(prefix="/api/v1/ledger", tags=["Audit Ledger"])
@@ -53,7 +53,7 @@ def list_audit_ledger_entries(
             "payload_hash": e.payload_hash,
             "prev_hash": e.prev_hash,
             "entry_hash": e.entry_hash,
-            "created_at": e.created_at.isoformat(),
+            "created_at": _normalize_iso(e.created_at),
         }
         for e in reversed(entries)
     ]
