@@ -298,3 +298,98 @@ hr.divider {
   border-top: 1px solid var(--border-line);
   margin: 10px 0;
 }
+
+/* ==========================================================================
+   OVERDRIVE: SEQUENTIAL TELEMETRY LIGHTING & CRYPTOGRAPHIC BUS RELAY
+   ========================================================================== */
+
+.telemetry-rail-track {
+  position: relative;
+  height: 2px;
+  background: var(--border-dim);
+  width: 100%;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.telemetry-rail-runner {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 25%;
+  background: linear-gradient(90deg, transparent 0%, var(--accent-terminal) 50%, #ffffff 75%, transparent 100%);
+  filter: drop-shadow(0 0 3px var(--accent-terminal));
+  animation: telemetry-runner-flow 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes telemetry-runner-flow {
+  0% {
+    left: -25%;
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+.hop-card {
+  position: relative;
+  overflow: hidden;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.hop-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border-line);
+  transition: background-color 0.2s ease;
+}
+
+.hop-card-active {
+  background: linear-gradient(180deg, rgba(52, 211, 153, 0.08) 0%, var(--bg-recessed) 100%) !important;
+}
+
+.hop-card-active::before {
+  background: var(--accent-terminal) !important;
+  height: 2px !important;
+  box-shadow: 0 0 6px rgba(52, 211, 153, 0.4);
+}
+
+.hop-card-settled {
+  animation: hop-settled-pulse 2s ease-in-out infinite alternate;
+}
+
+@keyframes hop-settled-pulse {
+  0% {
+    box-shadow: inset 0 1px 0 rgba(52, 211, 153, 0.3);
+  }
+  100% {
+    box-shadow: inset 0 1px 4px rgba(52, 211, 153, 0.15);
+  }
+}
+
+/* Accessibility: Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot,
+  .telemetry-rail-runner,
+  .hop-card-settled {
+    animation: none !important;
+  }
+  .telemetry-rail-runner {
+    left: 0 !important;
+    width: 100% !important;
+    opacity: 0.6 !important;
+  }
+}
+

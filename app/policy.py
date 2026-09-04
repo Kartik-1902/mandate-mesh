@@ -48,18 +48,15 @@ from app.merchant_keys import get_merchant_public_key
 from app.schemas import MerchantSignedCart, PaymentMandate, UserIntentCredential
 
 
-def verify_intent(
-    intent_jwt: str,
-    user_public_key_pem: bytes | str | Path,
+def ensure_intent_registered(
+    intent: UserIntentCredential,
     db: Session,
-) -> UserIntentCredential:
-    """Verifies user intent cryptographic validity and ensures registration in IntentRegistry.
+) -> IntentRegistry:
+    """Ensures intent registration row exists in IntentRegistry.
 
-    If the intent does not exist in IntentRegistry, it is inserted as ACTIVE.
+    If the intent does not exist, it is inserted as ACTIVE using first-time registration semantics.
     The unique constraint on `nonce` guarantees that the intent credential was freshly minted.
-    If the intent exists and is ACTIVE, it is re-used (supporting max_transactions > 1).
     """
-    intent = verify_intent_jwt(intent_jwt, user_public_key_pem)
     intent_id_str = str(intent.intent_id)
 
     existing = (
@@ -96,20 +93,38 @@ def verify_intent(
                 actor=f"user:{intent.user_id}",
             )
             db.flush()
+            return new_reg
         except IntegrityError as e:
             db.rollback()
             raise PolicyReplayDetected(
                 f"Intent registration rejected: nonce '{intent.nonce}' has already been used."
             ) from e
-    else:
-        if existing.status == IntentStatus.EXHAUSTED:
-            raise PolicyTransactionLimitReached(
-                f"Intent '{intent_id_str}' has exhausted its maximum of {existing.max_transactions} transactions."
-            )
-        elif existing.status == IntentStatus.EXPIRED:
-            raise PolicyIntentExpired(f"Intent '{intent_id_str}' has expired.")
-        elif existing.status != IntentStatus.ACTIVE:
-            raise PolicyViolation("POLICY_INTENT_INACTIVE", f"Intent '{intent_id_str}' is in inactive state: {existing.status}")
+    return existing
+
+
+def verify_intent(
+    intent_jwt: str,
+    user_public_key_pem: bytes | str | Path,
+    db: Session,
+) -> UserIntentCredential:
+    """Verifies user intent cryptographic validity and ensures registration in IntentRegistry.
+
+    If the intent does not exist in IntentRegistry, it is inserted as ACTIVE.
+    The unique constraint on `nonce` guarantees that the intent credential was freshly minted.
+    If the intent exists and is ACTIVE, it is re-used (supporting max_transactions > 1).
+    """
+    intent = verify_intent_jwt(intent_jwt, user_public_key_pem)
+    existing = ensure_intent_registered(intent, db)
+    intent_id_str = str(intent.intent_id)
+
+    if existing.status == IntentStatus.EXHAUSTED:
+        raise PolicyTransactionLimitReached(
+            f"Intent '{intent_id_str}' has exhausted its maximum of {existing.max_transactions} transactions."
+        )
+    elif existing.status == IntentStatus.EXPIRED:
+        raise PolicyIntentExpired(f"Intent '{intent_id_str}' has expired.")
+    elif existing.status != IntentStatus.ACTIVE:
+        raise PolicyViolation("POLICY_INTENT_INACTIVE", f"Intent '{intent_id_str}' is in inactive state: {existing.status}")
 
     return intent
 
@@ -147,6 +162,16 @@ def authorize_mandate(
                 creates MandateRecord (status: RESERVED), and logs to audit ledger.
     On failure: Logs POLICY_REJECTED to audit ledger and fails closed with zero financial mutation.
     """
+    # 1. Cryptographically verify credentials before touching state
+    intent = verify_intent_jwt(intent_jwt, user_public_key_pem)
+    cart = verify_cart(cart_jwt, merchant_public_key_pem)
+    intent_id_str = str(intent.intent_id)
+    now = datetime.now(timezone.utc)
+
+    # 2. Ensure IntentRegistry row exists using first-time registration semantics
+    ensure_intent_registered(intent, db)
+
+    # 3. Acquire authoritative IntentRegistry row lock BEFORE evaluating state
     is_postgres = False
     try:
         bind = db.get_bind()
@@ -155,11 +180,6 @@ def authorize_mandate(
     except Exception:
         pass
 
-    intent = verify_intent(intent_jwt, user_public_key_pem, db)
-    cart = verify_cart(cart_jwt, merchant_public_key_pem)
-    now = datetime.now(timezone.utc)
-
-    intent_id_str = str(intent.intent_id)
     query = db.query(IntentRegistry).filter_by(intent_id=intent_id_str)
     if is_postgres:
         query = query.with_for_update()
@@ -187,6 +207,30 @@ def authorize_mandate(
         except Exception:
             db.rollback()
         raise error
+
+    # 4. FIX 5: Reject standalone authorization if a PurchasePlan already exists for this intent
+    existing_plan = db.query(PurchasePlan).filter_by(intent_id=intent_id_str).first()
+    if existing_plan:
+        _reject_policy(
+            PolicyViolation(
+                "POLICY_PLAN_EXISTS_FOR_INTENT",
+                f"Standalone mandate authorization rejected: a PurchasePlan '{existing_plan.plan_id}' already exists for intent '{intent_id_str}'.",
+            )
+        )
+
+    # 5. Under row lock, evaluate intent lifecycle status
+    if intent_row.status == IntentStatus.EXHAUSTED:
+        _reject_policy(
+            PolicyTransactionLimitReached(
+                f"Intent '{intent_id_str}' has exhausted its maximum of {intent_row.max_transactions} transactions."
+            )
+        )
+    elif intent_row.status == IntentStatus.EXPIRED:
+        _reject_policy(PolicyIntentExpired(f"Intent '{intent_id_str}' has expired."))
+    elif intent_row.status != IntentStatus.ACTIVE:
+        _reject_policy(
+            PolicyViolation("POLICY_INTENT_INACTIVE", f"Intent '{intent_id_str}' is in inactive state: {intent_row.status}")
+        )
 
     # 1. Category Allowlist Check
     allowed_categories_set = set(intent.allowed_categories)

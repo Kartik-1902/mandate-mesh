@@ -41,6 +41,7 @@ export default function App() {
   const [candidateQuotes, setCandidateQuotes] = useState([]);
   const [ledgerTrigger, setLedgerTrigger] = useState(0);
   const [chainValid, setChainValid] = useState(true);
+  const [sessionKey, setSessionKey] = useState(0);
 
   const handleAgentDeliberate = (res) => {
     if (res.routing_decision) {
@@ -76,16 +77,24 @@ export default function App() {
     setLedgerTrigger((prev) => prev + 1);
   };
 
+  const handleResetSession = () => {
+    setActiveMandate(null);
+    setRoutingDecision(null);
+    setCandidateQuotes([]);
+    setSessionKey((prev) => prev + 1);
+    triggerLedgerReload();
+  };
+
   return (
     <div className="control-tower-container">
       {/* 1. Header & Live Indicator Banner */}
-      <Header chainValid={chainValid} />
+      <Header chainValid={chainValid} onResetSession={handleResetSession} />
 
       {/* 2. Primary Operations Grid */}
       <div className="main-grid">
         {/* Left: Autonomous Buyer Agent + HITL Escalation Modal */}
         <div>
-          <ErrorBoundary>
+          <ErrorBoundary key={`agent-${sessionKey}`}>
             <AgentChat
               onDeliberateSuccess={handleAgentDeliberate}
               onEscalateSuccess={handleEscalateSuccess}
@@ -95,15 +104,15 @@ export default function App() {
         </div>
 
         {/* Right: Competitive Quotes + Cryptographic Mandate Chain + Adversarial Attack Playground */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <ErrorBoundary>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <ErrorBoundary key={`quote-${sessionKey}`}>
             <CompetitiveQuotePanel
               routingDecision={routingDecision}
               candidateQuotes={candidateQuotes}
             />
           </ErrorBoundary>
 
-          <ErrorBoundary>
+          <ErrorBoundary key={`chain-${sessionKey}`}>
             <MandateChainVisualizer
               activeMandate={activeMandate}
               onCaptureSuccess={triggerLedgerReload}
@@ -111,7 +120,7 @@ export default function App() {
             />
           </ErrorBoundary>
 
-          <ErrorBoundary>
+          <ErrorBoundary key={`attack-${sessionKey}`}>
             <AttackSimulator
               onAttackSuccess={triggerLedgerReload}
               onLedgerChange={triggerLedgerReload}

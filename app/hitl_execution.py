@@ -312,16 +312,27 @@ def revalidate_or_requote_leg(
                 )
 
     # D. Price Cap / Authorized Amount Verification
-    if verified_fresh_cart.total_paise > mandate_record.authorized_amount_paise:
-        overspend = verified_fresh_cart.total_paise - mandate_record.authorized_amount_paise
-        return (
-            False,
-            verified_fresh_cart,
-            fresh_jwt,
-            f"Re-quoted price Rs. {verified_fresh_cart.total_paise / 100:.2f} exceeds authorized "
-            f"Rs. {mandate_record.authorized_amount_paise / 100:.2f} by Rs. {overspend / 100:.2f}. "
-            f"User re-authorization required.",
-        )
+    if verified_fresh_cart.total_paise != mandate_record.authorized_amount_paise:
+        if verified_fresh_cart.total_paise > mandate_record.authorized_amount_paise:
+            overspend = verified_fresh_cart.total_paise - mandate_record.authorized_amount_paise
+            return (
+                False,
+                verified_fresh_cart,
+                fresh_jwt,
+                f"Re-quoted price Rs. {verified_fresh_cart.total_paise / 100:.2f} exceeds authorized "
+                f"Rs. {mandate_record.authorized_amount_paise / 100:.2f} by Rs. {overspend / 100:.2f}. "
+                f"User re-authorization required.",
+            )
+        else:
+            underspend = mandate_record.authorized_amount_paise - verified_fresh_cart.total_paise
+            return (
+                False,
+                verified_fresh_cart,
+                fresh_jwt,
+                f"Re-quoted price Rs. {verified_fresh_cart.total_paise / 100:.2f} differs from authorized "
+                f"Rs. {mandate_record.authorized_amount_paise / 100:.2f} (lower by Rs. {underspend / 100:.2f}). "
+                f"User re-authorization required.",
+            )
 
     return True, verified_fresh_cart, fresh_jwt, None
 
@@ -423,12 +434,17 @@ def execute_plan_leg(
     )
     if not is_valid:
         if "re-authorization required" in (error_msg or "").lower():
+            err_code = (
+                "PRICE_DECREASE_REQUIRES_REAUTH"
+                if (fresh_cart and fresh_cart.total_paise < record.authorized_amount_paise)
+                else "PRICE_INCREASE_REQUIRES_REAUTH"
+            )
             return LegExecutionResult(
                 mandate_id=record.mandate_id,
                 merchant_id=record.merchant_id,
                 status=LegExecutionStatus.REQUIRES_REAUTH,
                 authorized_amount_paise=record.authorized_amount_paise,
-                error_code="PRICE_INCREASE_REQUIRES_REAUTH",
+                error_code=err_code,
                 error_message=error_msg,
             )
         err_code = "POLICY_VIOLATION" if "violates" in (error_msg or "").lower() else "MERCHANT_UNAVAILABLE"
@@ -480,6 +496,7 @@ def execute_plan_leg(
             captured_amount_paise=0,
             razorpay_order_id=rzp_order["id"],
         )
+
     except Exception as e:
         db.rollback()
         return release_failed_leg(
@@ -514,6 +531,32 @@ def release_failed_leg(
             razorpay_payment_id=mandate_record.razorpay_payment_id,
         )
 
+    if mandate_record.status == MandateStatus.RELEASED:
+        return LegExecutionResult(
+            mandate_id=mandate_record.mandate_id,
+            merchant_id=mandate_record.merchant_id,
+            status=LegExecutionStatus.RELEASED,
+            authorized_amount_paise=mandate_record.authorized_amount_paise,
+            captured_amount_paise=0,
+            released_reservation_paise=0,
+            error_code="LEG_ALREADY_RELEASED",
+            error_message="Mandate has already been released.",
+        )
+
+    is_postgres = False
+    try:
+        bind = db.get_bind()
+        if bind and bind.dialect.name == "postgresql":
+            is_postgres = True
+    except Exception:
+        pass
+
+    # Acquire FOR UPDATE on IntentRegistry before changing reserved_paise
+    intent_query = db.query(IntentRegistry).filter_by(intent_id=mandate_record.intent_id)
+    if is_postgres:
+        intent_query = intent_query.with_for_update()
+    intent_reg = intent_query.first()
+
     released_amount = mandate_record.reserved_paise
 
     if mandate_record.status == MandateStatus.RESERVED:
@@ -525,7 +568,6 @@ def release_failed_leg(
     elif mandate_record.status == MandateStatus.ORDER_CREATING:
         transition(mandate_record, MandateStatus.RELEASED, db)
 
-    intent_reg = db.query(IntentRegistry).filter_by(intent_id=mandate_record.intent_id).first()
     if intent_reg and released_amount > 0:
         intent_reg.reserved_paise = max(0, intent_reg.reserved_paise - released_amount)
 

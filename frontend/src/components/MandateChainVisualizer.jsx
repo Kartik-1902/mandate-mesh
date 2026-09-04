@@ -138,9 +138,16 @@ export default function MandateChainVisualizer({ activeMandate, onCaptureSuccess
         )}
       </div>
 
+      {/* Sequential Lighting Connector Rail */}
+      <div className="telemetry-rail-track" aria-hidden="true">
+        {(activeMandate || receiptData) && (
+          <div className="telemetry-rail-runner" />
+        )}
+      </div>
+
       {/* 5-Hop Step-Through Pipeline Rail */}
       <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '4px' }}>
-        {hops.map((hop) => {
+        {hops.map((hop, index) => {
           const isSelected = selectedHop === hop.id;
           const isVerified = hop.status === 'VERIFIED' || hop.status === 'AUTHORIZED' || hop.status === 'CREATED' || hop.status === 'SETTLED';
 
@@ -148,17 +155,18 @@ export default function MandateChainVisualizer({ activeMandate, onCaptureSuccess
             <button
               key={hop.id}
               onClick={() => setSelectedHop(hop.id)}
+              className={`hop-card ${isVerified ? 'hop-card-active' : ''} ${receiptData ? 'hop-card-settled' : ''}`}
+              aria-label={`Register ${hop.num}: ${hop.title}, Status: ${hop.status}`}
               style={{
                 background: isSelected ? 'var(--bg-surface)' : 'var(--bg-recessed)',
                 border: isSelected ? '1px solid var(--text-phosphor)' : '1px solid var(--border-line)',
-                borderTop: isVerified ? '2px solid var(--accent-terminal)' : '1px solid var(--border-line)',
                 padding: '6px 8px',
                 textAlign: 'left',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '2px',
                 cursor: 'pointer',
-                transition: 'all 0.15s ease',
+                transition: 'all 0.2s ease',
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

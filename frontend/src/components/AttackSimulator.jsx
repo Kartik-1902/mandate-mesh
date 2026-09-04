@@ -68,7 +68,7 @@ export default function AttackSimulator({ onAttackSuccess, onLedgerChange }) {
   const hoveredAttack = attacks.find((a) => a.id === activeHoverId);
 
   return (
-    <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '2px solid var(--accent-red)' }}>
+    <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
       
       {/* Header */}
       <div className="panel-card-header" style={{ marginBottom: 0, paddingBottom: '6px' }}>
@@ -139,7 +139,6 @@ export default function AttackSimulator({ onAttackSuccess, onLedgerChange }) {
         <div style={{
           background: 'var(--bg-recessed)',
           border: '1px solid var(--border-bright)',
-          borderLeft: '3px solid var(--accent-red)',
           padding: '8px 10px',
           display: 'flex',
           flexDirection: 'column',

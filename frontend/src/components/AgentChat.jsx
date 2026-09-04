@@ -134,7 +134,12 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
             placeholder="ENTER PURCHASING GOAL..."
-            onKeyDown={(e) => e.key === 'Enter' && handleDeliberate()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleDeliberate();
+              }
+            }}
             disabled={loading}
             style={{
               flex: 1,
@@ -148,14 +153,24 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
               textTransform: 'uppercase',
             }}
           />
+          <span style={{
+            fontSize: '0.62rem',
+            color: 'var(--text-dim)',
+            fontFamily: 'var(--font-mono)',
+            padding: '2px 4px',
+            border: '1px solid var(--border-line)',
+            background: 'var(--bg-recessed)',
+          }}>
+            ↵
+          </span>
         </div>
         <button
           className="btn btn-primary"
           onClick={() => handleDeliberate()}
           disabled={loading || !goal.trim()}
-          style={{ padding: '0 12px', minWidth: '100px', fontSize: '0.72rem' }}
+          style={{ padding: '0 12px', minWidth: '110px', fontSize: '0.72rem' }}
         >
-          {loading ? 'RUNNING...' : '[ DELIBERATE ]'}
+          {loading ? 'RUNNING...' : '[ DELIBERATE ↵ ]'}
         </button>
       </div>
 
@@ -328,7 +343,6 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
               <div style={{
                 background: 'var(--bg-recessed)',
                 border: '1px solid var(--border-bright)',
-                borderLeft: '2px solid var(--accent-amber)',
                 padding: '6px 10px',
                 fontSize: '0.72rem',
                 color: 'var(--text-phosphor)',
@@ -340,8 +354,7 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
             {agentState.status === 'COMPLETED' && (
               <div style={{
                 background: 'var(--bg-recessed)',
-                border: '1px solid var(--border-bright)',
-                borderLeft: '2px solid var(--accent-terminal)',
+                border: '1px solid var(--accent-terminal)',
                 padding: '6px 10px',
                 fontSize: '0.72rem',
                 color: 'var(--accent-terminal)',
@@ -354,8 +367,7 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
             {agentState.status === 'USER_REJECTED' && (
               <div style={{
                 background: 'var(--bg-recessed)',
-                border: '1px solid var(--border-bright)',
-                borderLeft: '2px solid var(--accent-red)',
+                border: '1px solid var(--accent-red)',
                 padding: '6px 10px',
                 fontSize: '0.72rem',
                 color: 'var(--accent-red)',

@@ -94,6 +94,14 @@ def process_payment_webhook(
             "message": "Event already processed.",
         }
 
+    is_postgres = False
+    try:
+        bind = db.get_bind()
+        if bind and bind.dialect.name == "postgresql":
+            is_postgres = True
+    except Exception:
+        pass
+
     # =========================================================================
     # Event: payment.captured
     # =========================================================================
@@ -108,12 +116,11 @@ def process_payment_webhook(
         except KeyError as e:
             raise PolicyViolation("POLICY_WEBHOOK_MALFORMED", f"Missing field in payment entity: {e}", http_status=400) from e
 
-        # 3 & 4. Lookup MandateRecord by razorpay_order_id
-        mandate_record = (
-            db.query(MandateRecord)
-            .filter_by(razorpay_order_id=order_id)
-            .first()
-        )
+        # 3 & 4. Lookup and row-lock MandateRecord by razorpay_order_id
+        mandate_query = db.query(MandateRecord).filter_by(razorpay_order_id=order_id)
+        if is_postgres:
+            mandate_query = mandate_query.with_for_update()
+        mandate_record = mandate_query.first()
         if not mandate_record:
             raise PolicyViolation(
                 "POLICY_MANDATE_NOT_FOUND",
@@ -121,7 +128,7 @@ def process_payment_webhook(
                 http_status=404,
             )
 
-        # Handle duplicate delivery where mandate is already captured
+        # Re-check mandate state after acquiring the lock
         if mandate_record.status == MandateStatus.PAYMENT_CAPTURED:
             return {
                 "received": True,
@@ -172,12 +179,11 @@ def process_payment_webhook(
                 http_status=409,
             )
 
-        # 9. Intent Registry Balance Check
-        intent_reg = (
-            db.query(IntentRegistry)
-            .filter_by(intent_id=mandate_record.intent_id)
-            .first()
-        )
+        # 9. Intent Registry Balance Check under row lock
+        intent_query = db.query(IntentRegistry).filter_by(intent_id=mandate_record.intent_id)
+        if is_postgres:
+            intent_query = intent_query.with_for_update()
+        intent_reg = intent_query.first()
         if not intent_reg or intent_reg.reserved_paise < amount_paise:
             raise PolicyViolation(
                 "POLICY_RESERVATION_NOT_FOUND",
@@ -285,10 +291,33 @@ def process_payment_webhook(
         payment_entity = event_data.get("payload", {}).get("payment", {}).get("entity", {})
         order_id = payment_entity.get("order_id")
         if order_id:
-            mandate_record = db.query(MandateRecord).filter_by(razorpay_order_id=order_id).first()
-            if mandate_record and mandate_record.status != MandateStatus.PAYMENT_CAPTURED:
+            mandate_query = db.query(MandateRecord).filter_by(razorpay_order_id=order_id)
+            if is_postgres:
+                mandate_query = mandate_query.with_for_update()
+            mandate_record = mandate_query.first()
+            if mandate_record:
+                # Re-check mandate state after acquiring the lock
+                if mandate_record.status == MandateStatus.PAYMENT_CAPTURED:
+                    return {
+                        "received": True,
+                        "deduplicated": True,
+                        "status": "IGNORED_ALREADY_CAPTURED",
+                        "event_id": event_id,
+                    }
+                if mandate_record.status in (MandateStatus.PAYMENT_FAILED, MandateStatus.RELEASED):
+                    return {
+                        "received": True,
+                        "deduplicated": True,
+                        "status": mandate_record.status.value,
+                        "event_id": event_id,
+                    }
+
                 transition(mandate_record, MandateStatus.PAYMENT_FAILED, db)
-                intent_reg = db.query(IntentRegistry).filter_by(intent_id=mandate_record.intent_id).first()
+
+                intent_query = db.query(IntentRegistry).filter_by(intent_id=mandate_record.intent_id)
+                if is_postgres:
+                    intent_query = intent_query.with_for_update()
+                intent_reg = intent_query.first()
                 if intent_reg:
                     # Release reservation back to available budget
                     intent_reg.reserved_paise = max(0, intent_reg.reserved_paise - mandate_record.reserved_paise)
@@ -312,7 +341,16 @@ def process_payment_webhook(
                     payload={"event_id": event_id, "event_type": event_type, "order_id": order_id},
                     actor="gateway:razorpay",
                 )
-                db.commit()
+                try:
+                    db.commit()
+                except IntegrityError:
+                    db.rollback()
+                    return {
+                        "received": True,
+                        "deduplicated": True,
+                        "event_id": event_id,
+                        "status": "PAYMENT_FAILED",
+                    }
 
         return {"received": True, "status": "PAYMENT_FAILED", "event_id": event_id}
 
