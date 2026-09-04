@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Terminal, Send, AlertTriangle, CheckCircle2, ShieldAlert, Sparkles, Layers } from 'lucide-react';
+import { Terminal, Send, AlertTriangle, CheckCircle2, ShieldAlert, Sparkles } from 'lucide-react';
 import { deliberateGoal, escalateAndPay } from '../services/api';
 
 export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLedgerChange }) {
@@ -10,9 +10,9 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
   const [escalating, setEscalating] = useState(false);
 
   const samplePrompts = [
-    { label: '[ EXEC: CAKE_ROUTING < ₹1500 ]', text: 'Order a 1kg chocolate cake under Rs. 1500 comparing all bakeries' },
-    { label: '[ EXEC: HITL_ESCALATION < ₹800 ]', text: 'Order a chocolate cake under Rs. 800' },
-    { label: '[ EXEC: COMBO_BASKET < ₹2000 ]', text: 'Order a chocolate cake and greeting card under Rs. 2000' },
+    { label: 'Cake Routing (< ₹1500)', text: 'Order a 1kg chocolate cake under Rs. 1500 comparing all bakeries' },
+    { label: 'HITL Escalation (< ₹800)', text: 'Order a chocolate cake under Rs. 800' },
+    { label: 'Combo Basket (< ₹2000)', text: 'Order a chocolate cake and greeting card under Rs. 2000' },
   ];
 
   const handleDeliberate = async (targetGoal) => {
@@ -80,63 +80,60 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
   };
 
   return (
-    <div className="panel-card" style={{ height: '100%', minHeight: '660px' }}>
+    <div className="panel-card" style={{ height: '100%', minHeight: '560px', display: 'flex', flexDirection: 'column' }}>
       
-      {/* Panel Header */}
-      <div className="panel-card-header">
+      {/* Header */}
+      <div className="panel-card-header" style={{ marginBottom: 0, paddingBottom: '6px' }}>
         <div className="panel-title">
-          <Terminal size={16} color="var(--text-phosphor)" />
-          <span>AUTONOMOUS BUYER AGENT // DELIBERATION CONSOLE</span>
+          <Terminal size={14} color="var(--text-phosphor)" />
+          <span>AUTONOMOUS BUYER AGENT</span>
         </div>
-        <span className="badge badge-steel">LANGGRAPH ENGINE</span>
+        <span className="badge badge-steel" style={{ fontSize: '0.65rem' }}>
+          LANGGRAPH DELIBERATION
+        </span>
       </div>
 
-      {/* Preset Diagnostic Macro Triggers */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' }}>
-        <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          PRESET SCENARIO MACROS:
-        </span>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-          {samplePrompts.map((p, idx) => (
-            <button
-              key={idx}
-              onClick={() => {
-                setGoal(p.text);
-                handleDeliberate(p.text);
-              }}
-              disabled={loading}
-              className="btn btn-secondary"
-              style={{
-                fontSize: '0.7rem',
-                padding: '4px 8px',
-                border: '1px solid var(--border-line)',
-                background: 'var(--bg-recessed)',
-              }}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
+      {/* Preset Macro Buttons */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', margin: '10px 0 8px' }}>
+        {samplePrompts.map((p, idx) => (
+          <button
+            key={idx}
+            onClick={() => {
+              setGoal(p.text);
+              handleDeliberate(p.text);
+            }}
+            disabled={loading}
+            className="btn btn-secondary"
+            style={{
+              fontSize: '0.68rem',
+              padding: '3px 8px',
+              border: '1px solid var(--border-line)',
+              background: 'var(--bg-recessed)',
+            }}
+          >
+            [ {p.label} ]
+          </button>
+        ))}
       </div>
 
       {/* Command Input Bar */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
         <div style={{
           flex: 1,
           display: 'flex',
           alignItems: 'center',
           background: 'var(--bg-input)',
           border: '1px solid var(--border-bright)',
-          padding: '0 10px',
+          padding: '0 8px',
         }}>
-          <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontWeight: 700, marginRight: '8px' }}>
+          <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontWeight: 700, marginRight: '6px' }}>
             &gt;&gt;&gt;
           </span>
           <input
             type="text"
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
-            placeholder="ENTER PURCHASING INTENT QUERY..."
+            placeholder="ENTER PURCHASING GOAL..."
             onKeyDown={(e) => e.key === 'Enter' && handleDeliberate()}
             disabled={loading}
             style={{
@@ -144,8 +141,8 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
               background: 'transparent',
               border: 'none',
               color: 'var(--text-phosphor)',
-              padding: '10px 0',
-              fontSize: '0.82rem',
+              padding: '8px 0',
+              fontSize: '0.78rem',
               fontFamily: 'var(--font-mono)',
               outline: 'none',
               textTransform: 'uppercase',
@@ -156,58 +153,55 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
           className="btn btn-primary"
           onClick={() => handleDeliberate()}
           disabled={loading || !goal.trim()}
-          style={{ padding: '0 16px', minWidth: '130px' }}
+          style={{ padding: '0 12px', minWidth: '100px', fontSize: '0.72rem' }}
         >
-          {loading ? 'DELIBERATING...' : '[ TRANSMIT ]'}
+          {loading ? 'RUNNING...' : '[ DELIBERATE ]'}
         </button>
       </div>
 
-      {/* Error Notice */}
+      {/* Error Banner */}
       {error && (
         <div style={{
           background: 'var(--accent-red-dim)',
           border: '1px solid var(--accent-red)',
-          padding: '10px 14px',
-          marginBottom: '14px',
+          padding: '8px 10px',
+          marginBottom: '10px',
           display: 'flex',
           alignItems: 'center',
-          gap: '10px',
+          gap: '8px',
         }}>
-          <ShieldAlert size={18} color="var(--accent-red)" />
-          <span style={{ fontSize: '0.78rem', color: 'var(--accent-red)', fontWeight: 700 }}>
+          <ShieldAlert size={14} color="var(--accent-red)" />
+          <span style={{ fontSize: '0.72rem', color: 'var(--accent-red)', fontWeight: 700 }}>
             {error}
           </span>
         </div>
       )}
 
-      {/* Deliberation Transcript Stream */}
-      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {/* Results Container */}
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {agentState ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             
-            {/* Telemetry Record: User Goal */}
-            <div style={{ background: 'var(--bg-recessed)', border: '1px solid var(--border-line)', padding: '10px 12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                  TARGET OBJECTIVE INTENT
-                </span>
-                <span className="badge badge-steel" style={{ fontSize: '0.65rem' }}>FSM: PARSED</span>
-              </div>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-phosphor)', fontWeight: 600 }}>
+            {/* User Goal */}
+            <div style={{ background: 'var(--bg-recessed)', border: '1px solid var(--border-line)', padding: '8px 10px' }}>
+              <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                GOAL:
+              </span>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-phosphor)', fontWeight: 600, marginTop: '2px' }}>
                 "{agentState.goal}"
               </p>
             </div>
 
             {/* LLM Deliberation Reasoning */}
             {agentState.llm_reasoning && (
-              <div style={{ background: 'var(--bg-recessed)', border: '1px solid var(--border-line)', padding: '10px 12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                  <Sparkles size={13} color="var(--accent-steel)" />
-                  <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                    REASONING MATRIX TELEMETRY
+              <div style={{ background: 'var(--bg-recessed)', border: '1px solid var(--border-line)', padding: '8px 10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px' }}>
+                  <Sparkles size={12} color="var(--accent-steel)" />
+                  <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                    REASONING
                   </span>
                 </div>
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                <p style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
                   {agentState.llm_reasoning}
                 </p>
               </div>
@@ -217,21 +211,21 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
             {agentState.signed_cart?.line_items && (
               <div style={{ background: 'var(--bg-recessed)', border: '1px solid var(--border-line)' }}>
                 <div style={{
-                  padding: '8px 12px',
+                  padding: '6px 10px',
                   borderBottom: '1px solid var(--border-line)',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
                 }}>
-                  <span style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-phosphor)' }}>
-                    AUTHORITATIVE MERCHANT CART MANIFEST
+                  <span style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-phosphor)' }}>
+                    MERCHANT CART
                   </span>
-                  <span className="badge badge-green" style={{ fontSize: '0.65rem' }}>
-                    DB PRICED · ZERO LLM CALC
+                  <span className="badge badge-green" style={{ fontSize: '0.6rem' }}>
+                    DB PRICED
                   </span>
                 </div>
 
-                <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {agentState.signed_cart.line_items.map((item, i) => (
                     <div
                       key={i}
@@ -239,15 +233,11 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        fontSize: '0.78rem',
-                        padding: '4px 0',
-                        borderBottom: '1px dashed var(--border-dim)',
+                        fontSize: '0.74rem',
+                        padding: '2px 0',
                       }}
                     >
-                      <div>
-                        <span style={{ color: 'var(--text-phosphor)', fontWeight: 600 }}>{item.name}</span>
-                        <span style={{ color: 'var(--text-muted)', marginLeft: '8px' }}>[QTY: {item.quantity}]</span>
-                      </div>
+                      <span>{item.name} × {item.quantity}</span>
                       <span style={{ color: 'var(--text-phosphor)', fontWeight: 700 }}>
                         ₹{(item.unit_price_paise * item.quantity / 100).toFixed(2)}
                       </span>
@@ -257,13 +247,13 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
                   <div style={{
                     display: 'flex',
                     justifyContent: 'space-between',
-                    marginTop: '8px',
-                    paddingTop: '8px',
+                    marginTop: '4px',
+                    paddingTop: '4px',
                     borderTop: '1px solid var(--border-line)',
                     fontWeight: 800,
-                    fontSize: '0.85rem',
+                    fontSize: '0.82rem',
                   }}>
-                    <span style={{ color: 'var(--text-muted)' }}>TOTAL SETTLEMENT SUM:</span>
+                    <span style={{ color: 'var(--text-muted)' }}>TOTAL:</span>
                     <span style={{ color: 'var(--accent-terminal)' }}>
                       ₹{(agentState.signed_cart.total_paise / 100).toFixed(2)}
                     </span>
@@ -277,124 +267,101 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
               <div style={{
                 background: 'var(--bg-recessed)',
                 border: '1px solid var(--accent-amber)',
-                position: 'relative',
+                padding: '10px 12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
               }}>
-                <div className="hazard-stripe-amber" />
-                <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <AlertTriangle size={18} color="var(--accent-amber)" />
-                    <div>
-                      <h4 style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--accent-amber)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                        POLICY INTERCEPT // HUMAN-IN-THE-LOOP AUTHORIZATION REQUIRED
-                      </h4>
-                      <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                        Catalog pricing exceeds initial budget threshold. Automated execution halted.
-                      </p>
-                    </div>
-                  </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <AlertTriangle size={15} color="var(--accent-amber)" />
+                  <span style={{ fontSize: '0.74rem', fontWeight: 800, color: 'var(--accent-amber)', textTransform: 'uppercase' }}>
+                    BUDGET ESCALATION REQUIRED
+                  </span>
+                </div>
 
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    gap: '8px',
-                    background: 'var(--bg-terminal)',
-                    border: '1px solid var(--border-line)',
-                    padding: '8px 10px',
-                    fontSize: '0.75rem',
-                  }}>
-                    <div>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '0.68rem' }}>INITIAL CEILING:</span>
-                      <p style={{ color: 'var(--text-secondary)', fontWeight: 700, marginTop: '2px' }}>
-                        ₹{(agentState.escalation_details.current_budget_paise / 100).toFixed(2)}
-                      </p>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '0.68rem' }}>MERCHANT QUOTE:</span>
-                      <p style={{ color: 'var(--accent-amber)', fontWeight: 800, marginTop: '2px' }}>
-                        ₹{(agentState.escalation_details.suggested_total_paise / 100).toFixed(2)}
-                      </p>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '0.68rem' }}>OVERSPEND DELTA:</span>
-                      <p style={{ color: 'var(--accent-red)', fontWeight: 800, marginTop: '2px' }}>
-                        +₹{(agentState.escalation_details.overspend_paise / 100).toFixed(2)}
-                      </p>
-                    </div>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gap: '6px',
+                  background: 'var(--bg-terminal)',
+                  border: '1px solid var(--border-line)',
+                  padding: '6px 8px',
+                  fontSize: '0.72rem',
+                }}>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.62rem' }}>CAP:</span>
+                    <p style={{ fontWeight: 700 }}>₹{(agentState.escalation_details.current_budget_paise / 100).toFixed(2)}</p>
                   </div>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.62rem' }}>REQUIRED:</span>
+                    <p style={{ color: 'var(--accent-amber)', fontWeight: 800 }}>₹{(agentState.escalation_details.suggested_total_paise / 100).toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.62rem' }}>DELTA:</span>
+                    <p style={{ color: 'var(--accent-red)', fontWeight: 800 }}>+₹{(agentState.escalation_details.overspend_paise / 100).toFixed(2)}</p>
+                  </div>
+                </div>
 
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      className="btn btn-success"
-                      onClick={handleEscalateApproval}
-                      disabled={escalating}
-                      style={{ flex: 1, fontSize: '0.75rem' }}
-                    >
-                      {escalating ? 'AUTHORIZING MANDATE...' : `[ AUTHORIZE & SIGN ₹${(agentState.escalation_details.suggested_total_paise / 100).toFixed(2)} ]`}
-                    </button>
-                    <button
-                      className="btn btn-secondary"
-                      onClick={handleDecline}
-                      disabled={escalating}
-                      style={{ fontSize: '0.75rem' }}
-                    >
-                      [ DECLINE ]
-                    </button>
-                  </div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    className="btn btn-success"
+                    onClick={handleEscalateApproval}
+                    disabled={escalating}
+                    style={{ flex: 1, fontSize: '0.7rem', padding: '6px 8px' }}
+                  >
+                    {escalating ? 'AUTHORIZING...' : `[ APPROVE & SIGN ₹${(agentState.escalation_details.suggested_total_paise / 100).toFixed(2)} ]`}
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleDecline}
+                    disabled={escalating}
+                    style={{ fontSize: '0.7rem', padding: '6px 8px' }}
+                  >
+                    [ DECLINE ]
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* No Candidate Match Banner */}
+            {/* Outcomes */}
             {agentState.status === 'NO_CANDIDATE_MATCH' && (
               <div style={{
                 background: 'var(--bg-recessed)',
                 border: '1px solid var(--border-bright)',
-                borderLeft: '3px solid var(--accent-amber)',
-                padding: '10px 12px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
+                borderLeft: '2px solid var(--accent-amber)',
+                padding: '6px 10px',
+                fontSize: '0.72rem',
+                color: 'var(--text-phosphor)',
               }}>
-                <AlertTriangle size={16} color="var(--accent-amber)" />
-                <span style={{ fontSize: '0.78rem', color: 'var(--text-phosphor)', fontWeight: 600 }}>
-                  [ OUTCOME: NO_CANDIDATE_MATCH ] · ZERO RUPEES COMMITTED
-                </span>
+                [ NO CANDIDATE MATCH ] · ZERO RUPEES COMMITTED
               </div>
             )}
 
-            {/* Completed Outcome */}
             {agentState.status === 'COMPLETED' && (
               <div style={{
                 background: 'var(--bg-recessed)',
                 border: '1px solid var(--border-bright)',
-                borderLeft: '3px solid var(--accent-terminal)',
-                padding: '10px 12px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
+                borderLeft: '2px solid var(--accent-terminal)',
+                padding: '6px 10px',
+                fontSize: '0.72rem',
+                color: 'var(--accent-terminal)',
+                fontWeight: 700,
               }}>
-                <CheckCircle2 size={16} color="var(--accent-terminal)" />
-                <span style={{ fontSize: '0.78rem', color: 'var(--accent-terminal)', fontWeight: 700 }}>
-                  [ OUTCOME: MANDATE_ISSUED & ORDER_CREATED ] · CRYPTOGRAPHICALLY BOUND
-                </span>
+                [ MANDATE ISSUED & ORDER CREATED ]
               </div>
             )}
 
-            {/* Declined Outcome */}
             {agentState.status === 'USER_REJECTED' && (
               <div style={{
                 background: 'var(--bg-recessed)',
                 border: '1px solid var(--border-bright)',
-                borderLeft: '3px solid var(--accent-red)',
-                padding: '10px 12px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
+                borderLeft: '2px solid var(--accent-red)',
+                padding: '6px 10px',
+                fontSize: '0.72rem',
+                color: 'var(--accent-red)',
+                fontWeight: 700,
               }}>
-                <ShieldAlert size={16} color="var(--accent-red)" />
-                <span style={{ fontSize: '0.78rem', color: 'var(--accent-red)', fontWeight: 700 }}>
-                  [ OUTCOME: TRANSACTION_ABORTED_BY_USER ] · ZERO RUPEES MOVED
-                </span>
+                [ TRANSACTION ABORTED BY USER ] · ZERO RUPEES MOVED
               </div>
             )}
 
@@ -402,20 +369,15 @@ export default function AgentChat({ onDeliberateSuccess, onEscalateSuccess, onLe
         ) : (
           <div style={{
             display: 'flex',
-            flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
             height: '100%',
             color: 'var(--text-muted)',
             textAlign: 'center',
-            gap: '8px',
-            border: '1px dashed var(--border-line)',
-            padding: '32px 16px',
+            fontSize: '0.72rem',
+            padding: '24px 12px',
           }}>
-            <Terminal size={32} color="var(--border-bright)" />
-            <p style={{ fontSize: '0.78rem', maxWidth: '300px', letterSpacing: '0.04em' }}>
-              SELECT A PRESET SCENARIO OR TRANSMIT NATURAL LANGUAGE INTENT TO COMMENCE AGENTIC DELIBERATION.
-            </p>
+            TRANSMIT AN INTENT OR SELECT A PRESET MACRO TO COMMENCE DELIBERATION.
           </div>
         )}
       </div>

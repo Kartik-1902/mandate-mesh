@@ -1,0 +1,226 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-04T06:24:00Z",
+  "title": "Design System: Mandate Mesh",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Emerald Proof",
+        "canonical": "#34d399",
+        "tonalRamp": [
+          "#062417",
+          "#0a3c26",
+          "#0f5436",
+          "#15754b",
+          "#1ea26a",
+          "#34d399",
+          "#6ee7b7",
+          "#a7f3d0"
+        ]
+      },
+      "accent-threat": {
+        "role": "secondary",
+        "displayName": "Threat Crimson",
+        "canonical": "#d03b3b",
+        "tonalRamp": [
+          "#2c0b0b",
+          "#4a1313",
+          "#6e1d1d",
+          "#9a2828",
+          "#c03535",
+          "#d03b3b",
+          "#e57373",
+          "#ffcdd2"
+        ]
+      },
+      "accent-escalation": {
+        "role": "tertiary",
+        "displayName": "Escalation Amber",
+        "canonical": "#d97706",
+        "tonalRamp": [
+          "#2e1901",
+          "#4f2b02",
+          "#784103",
+          "#a85b04",
+          "#d97706",
+          "#f59e0b",
+          "#fbbf24",
+          "#fde68a"
+        ]
+      },
+      "neutral-bg": {
+        "role": "neutral",
+        "displayName": "Terminal Obsidian",
+        "canonical": "#0b0d11",
+        "tonalRamp": [
+          "#050608",
+          "#0b0d11",
+          "#11141a",
+          "#171b23",
+          "#20242e",
+          "#2d3342",
+          "#565d6c",
+          "#8b93a4"
+        ]
+      },
+      "text-phosphor": {
+        "role": "neutral",
+        "displayName": "Phosphor White",
+        "canonical": "#e2e5eb",
+        "tonalRamp": [
+          "#565d6c",
+          "#6e778a",
+          "#8b93a4",
+          "#abb3c2",
+          "#c8ced9",
+          "#e2e5eb",
+          "#f1f3f7",
+          "#ffffff"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display Macro",
+        "purpose": "Command bar title and system status mode."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Module section headings and dialog titles."
+      },
+      "title": {
+        "displayName": "Title Mono",
+        "purpose": "Panel card headers and telemetry category markers."
+      },
+      "body": {
+        "displayName": "Body Mono",
+        "purpose": "Telemetry log lines, chat transcript, and table data."
+      },
+      "label": {
+        "displayName": "Label Mono",
+        "purpose": "Table column headers and metric units."
+      }
+    },
+    "shadows": [
+      {
+        "name": "none",
+        "value": "none",
+        "purpose": "Strict flat design with zero ambient or blur shadows."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "State transitions on buttons and telemetry hover states."
+      },
+      {
+        "name": "duration-fast",
+        "value": "150ms",
+        "purpose": "Immediate tactile feedback."
+      }
+    ],
+    "breakpoints": [
+      { "name": "desktop-wide", "value": "1720px" },
+      { "name": "tablet-split", "value": "1240px" },
+      { "name": "mobile", "value": "768px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Command Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "High-contrast phosphor action button for primary system dispatches.",
+      "html": "<button class=\"ds-btn-primary\">TRANSMIT MANDATE</button>",
+      "css": ".ds-btn-primary { background: #e2e5eb; color: #0b0d11; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 12px; border: 1px solid #e2e5eb; border-radius: 0; cursor: pointer; transition: background 0.15s ease, color 0.15s ease; } .ds-btn-primary:hover { background: #ffffff; color: #000000; }"
+    },
+    {
+      "name": "Success Verification Button",
+      "kind": "button",
+      "refersTo": "button-success",
+      "description": "Emerald action button for cryptographic confirmation and settlement.",
+      "html": "<button class=\"ds-btn-success\">AUTHORIZE SETTLEMENT</button>",
+      "css": ".ds-btn-success { background: #34d399; color: #052414; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 12px; border: 1px solid #34d399; border-radius: 0; cursor: pointer; transition: background 0.15s ease; } .ds-btn-success:hover { background: #4ade80; color: #000000; }"
+    },
+    {
+      "name": "Threat Vector Chip",
+      "kind": "chip",
+      "refersTo": "button-danger",
+      "description": "Adversarial simulation chip for trigger testing security guardrails.",
+      "html": "<button class=\"ds-btn-danger\">[ TEST ] PROMPT INJECTION</button>",
+      "css": ".ds-btn-danger { background: #171b23; color: #d03b3b; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 10px; border: 1px solid rgba(208, 59, 59, 0.3); border-radius: 0; cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease; } .ds-btn-danger:hover { background: rgba(208, 59, 59, 0.18); border-color: #d03b3b; color: #ffffff; }"
+    },
+    {
+      "name": "Verified Proof Badge",
+      "kind": "chip",
+      "refersTo": "badge-proof",
+      "description": "Compact proof badge displayed when a state transition is mathematically valid.",
+      "html": "<span class=\"ds-badge-proof\">✓ ECDSA VERIFIED</span>",
+      "css": ".ds-badge-proof { display: inline-flex; align-items: center; gap: 4px; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 6px; background: rgba(52, 211, 153, 0.12); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.35); border-radius: 0; }"
+    },
+    {
+      "name": "Panel Card Chassis",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Standard modular chassis container with 1px border partition.",
+      "html": "<div class=\"ds-panel-card\"><div class=\"ds-panel-header\"><span class=\"ds-panel-title\">CRYPTOGRAPHIC TELEMETRY</span><span class=\"ds-badge-proof\">ACTIVE</span></div><div class=\"ds-panel-body\">Deterministic state pipeline ready.</div></div>",
+      "css": ".ds-panel-card { background: #11141a; border: 1px solid #20242e; border-radius: 0; padding: 14px; display: flex; flex-direction: column; } .ds-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #20242e; } .ds-panel-title { font-family: 'JetBrains Mono', Consolas, monospace; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #e2e5eb; } .ds-panel-body { font-family: 'JetBrains Mono', Consolas, monospace; font-size: 13px; color: #8b93a4; }"
+    },
+    {
+      "name": "Monospace Telemetry Well",
+      "kind": "custom",
+      "refersTo": "recessed-well",
+      "description": "Recessed dark container for cryptographic digests and raw payloads.",
+      "html": "<div class=\"ds-telemetry-well\"><code>HASH: 0x8a3f9e2d7c1b4a6f...9e21</code></div>",
+      "css": ".ds-telemetry-well { background: #0e1015; border: 1px solid #20242e; border-radius: 0; padding: 8px 10px; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 12px; color: #8b93a4; line-height: 1.4; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Declassified Telemetry Console",
+    "overview": "Mandate Mesh presents an uncompromising, high-assurance operational environment modeled on tactical aerospace telemetry consoles and cryptographic hardware security modules. The visual aesthetic is deliberately restrained, utilitarian, and high-density: every pixel is dedicated to verifiable state, cryptographic proofs, and deterministic guardrail status.",
+    "keyCharacteristics": [
+      "Strict 90-degree mechanical geometry (0px border-radius universally).",
+      "High information density with monospaced data alignment for SHA-256 digests and currency values.",
+      "Flat structural depth through 1px border contrast and tonal substrate stepping.",
+      "Restrained, purposeful color economy (accents appear exclusively on verifiable state transitions)."
+    ],
+    "rules": [
+      {
+        "name": "The Phosphor Economy Rule",
+        "body": "Functional accent colors (#34d399, #d03b3b, #d97706) must occupy <= 5% of any viewport. Chromatic intensity signals a state change; the resting canvas is cold monochrome slate.",
+        "section": "colors"
+      },
+      {
+        "name": "The Hash Distinctness Rule",
+        "body": "SHA-256 cryptographic digests, ECDSA signatures, and UUIDs are rendered in monospace typography inside recessed substrate wells (#0e1015) with a 1px border.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Numbers Rule",
+        "body": "All prices (paise / INR), timestamps (IST), and hash digests must render using monospace fonts with tabular alignment to ensure vertical column stability.",
+        "section": "typography"
+      },
+      {
+        "name": "The No-Shadow Doctrine",
+        "body": "No box-shadow or filter: drop-shadow is permitted on containers or surfaces. Depth is defined solely by perimeter borders and background contrast.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do enforce border-radius: 0px across every DOM element.",
+      "Do render all currency calculations as integer paise formatted to INR with two decimal places (e.g. ₹1,249.00).",
+      "Do format all ledger timestamps in Indian Standard Time (IST) with explicit +05:30 offset.",
+      "Do truncate SHA-256 hashes cleanly (e.g. 0x3a8f...9d12) with full string copy-to-clipboard affordances.",
+      "Do preserve the 48px compact Command Bar height for maximum vertical canvas economy."
+    ],
+    "donts": [
+      "Don't introduce rounded corners, pill badges, or circular buttons.",
+      "Don't add decorative ambient glow, neon scanlines, or vibrating CRT animations that distract from telemetry reading.",
+      "Don't use floating-point math for any financial representation.",
+      "Don't use generic color names; rely on the semantic tokens defined in index.css.",
+      "Don't display unverified LLM output as authoritative state without passing through the cryptographic state machine."
+    ]
+  }
+}

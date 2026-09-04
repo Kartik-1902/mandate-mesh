@@ -1,44 +1,44 @@
 /* ==========================================================================
-   MANDATE MESH // TACTICAL TELEMETRY & INDUSTRIAL BRUTALISM DESIGN SYSTEM
-   SPEC: industrial-brutalist-ui (Tactical Telemetry & CRT Terminal Paradigm)
+   MANDATE MESH // REFINED TACTICAL TELEMETRY DESIGN SYSTEM
+   SPEC: impeccable quieter (Restrained, Precision Dark Telemetry Console)
    ========================================================================== */
 
 :root {
-  /* Substrate: Deactivated CRT & Cold Steel */
-  --bg-terminal: #08090c;
-  --bg-panel: #0e1015;
-  --bg-surface: #14171e;
-  --bg-recessed: #0a0b0f;
-  --bg-input: #080a0e;
+  /* Substrate: Deep Calm Charcoal & Cold Slate */
+  --bg-terminal: #0b0d11;
+  --bg-panel: #11141a;
+  --bg-surface: #171b23;
+  --bg-recessed: #0e1015;
+  --bg-input: #0a0c10;
 
-  /* Mechanical Dividers & 1px Structural Lines */
-  --border-line: #222630;
-  --border-dim: #181b22;
-  --border-bright: #383f4f;
-  --border-focus: #eaeaea;
+  /* Restrained 1px Structural Dividers */
+  --border-line: #20242e;
+  --border-dim: #161922;
+  --border-bright: #2d3342;
+  --border-focus: #e2e5eb;
 
-  /* Phosphor Typography */
-  --text-phosphor: #eaeaea;
-  --text-secondary: #9aa2b0;
-  --text-muted: #5e6675;
-  --text-dim: #3a404c;
+  /* Phosphor Typography (Soft Glare-Free White) */
+  --text-phosphor: #e2e5eb;
+  --text-secondary: #8b93a4;
+  --text-muted: #565d6c;
+  --text-dim: #3b414f;
 
-  /* Utilitarian Accents (Single Red Alert + Sparingly Green/Amber) */
-  --accent-red: #e61919;
-  --accent-red-dim: rgba(230, 25, 25, 0.12);
-  --accent-terminal: #4af626;
-  --accent-terminal-dim: rgba(74, 246, 38, 0.12);
-  --accent-amber: #ff9900;
-  --accent-amber-dim: rgba(255, 153, 0, 0.12);
-  --accent-steel: #b0b8c4;
-  --accent-steel-dim: rgba(176, 184, 196, 0.1);
+  /* Refined, Desaturated Accents */
+  --accent-red: #d03b3b;
+  --accent-red-dim: rgba(208, 59, 59, 0.12);
+  --accent-terminal: #34d399;
+  --accent-terminal-dim: rgba(52, 211, 153, 0.12);
+  --accent-amber: #d97706;
+  --accent-amber-dim: rgba(217, 119, 6, 0.12);
+  --accent-steel: #94a3b8;
+  --accent-steel-dim: rgba(148, 163, 184, 0.08);
 
-  /* Strict Typography Architecture */
-  --font-macro: 'Archivo Black', 'Inter', -apple-system, sans-serif;
+  /* Measured Typography Architecture */
+  --font-macro: 'Inter', system-ui, -apple-system, sans-serif;
   --font-sans: 'Inter', -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', Consolas, Monaco, monospace;
 
-  /* Geometry: Absolute rejection of border-radius (90-degree mechanical rigidity) */
+  /* Mechanical Geometry: Clean 90-Degree Corners */
   --radius: 0px;
 }
 
@@ -57,26 +57,9 @@ html, body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
-  line-height: 1.4;
+  line-height: 1.45;
   overflow-x: hidden;
   font-size: 13px;
-}
-
-/* CRT Scanline Rasterization Overlay */
-body::before {
-  content: " ";
-  display: block;
-  position: fixed;
-  top: 0; left: 0; bottom: 0; right: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0, 0, 0, 0.22) 2px,
-    rgba(0, 0, 0, 0.22) 4px
-  );
-  pointer-events: none;
-  z-index: 9999;
 }
 
 /* Mechanical Scrollbars */
@@ -98,9 +81,8 @@ body::before {
 /* Macro Structural Typography */
 h1, h2, h3, .macro-title {
   font-family: var(--font-macro);
-  text-transform: uppercase;
-  letter-spacing: -0.03em;
-  line-height: 0.95;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--text-phosphor);
 }
 
@@ -122,14 +104,14 @@ h1, h2, h3, .macro-title {
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 /* Primary Operations Grid */
 .main-grid {
   display: grid;
   grid-template-columns: 440px 1fr;
-  gap: 16px;
+  gap: 14px;
 }
 
 @media (max-width: 1240px) {
@@ -138,38 +120,14 @@ h1, h2, h3, .macro-title {
   }
 }
 
-/* Industrial Panel Chassis */
+/* Clean Industrial Panel Chassis */
 .panel-card {
   background: var(--bg-panel);
   border: 1px solid var(--border-line);
-  padding: 16px;
+  padding: 14px;
   position: relative;
   display: flex;
   flex-direction: column;
-}
-
-/* Technical Chassis Framing Markers (+) */
-.panel-card::before {
-  content: "+";
-  position: absolute;
-  top: -7px;
-  left: -5px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--border-bright);
-  line-height: 1;
-  pointer-events: none;
-}
-.panel-card::after {
-  content: "+";
-  position: absolute;
-  bottom: -6px;
-  right: -5px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--border-bright);
-  line-height: 1;
-  pointer-events: none;
 }
 
 /* Panel Header */
@@ -177,35 +135,35 @@ h1, h2, h3, .macro-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
-  padding-bottom: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--border-line);
   position: relative;
 }
 
 .panel-title {
   font-family: var(--font-mono);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--text-phosphor);
 }
 
-/* Solid Industrial Badges */
+/* Solid Restrained Badges */
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   font-family: var(--font-mono);
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 2px 7px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 2px 6px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.05em;
   border: 1px solid var(--border-line);
   background: var(--bg-surface);
   color: var(--text-secondary);
@@ -220,19 +178,19 @@ h1, h2, h3, .macro-title {
 .badge-green {
   background: var(--accent-terminal-dim);
   color: var(--accent-terminal);
-  border: 1px solid var(--accent-terminal);
+  border: 1px solid rgba(52, 211, 153, 0.35);
 }
 
 .badge-amber {
   background: var(--accent-amber-dim);
   color: var(--accent-amber);
-  border: 1px solid var(--accent-amber);
+  border: 1px solid rgba(217, 119, 6, 0.35);
 }
 
 .badge-red {
   background: var(--accent-red-dim);
   color: var(--accent-red);
-  border: 1px solid var(--accent-red);
+  border: 1px solid rgba(208, 59, 59, 0.35);
 }
 
 /* Mechanical Action Buttons */
@@ -240,16 +198,16 @@ h1, h2, h3, .macro-title {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   font-family: var(--font-mono);
-  font-size: 0.8rem;
-  font-weight: 700;
+  font-size: 0.75rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 8px 14px;
+  letter-spacing: 0.05em;
+  padding: 6px 12px;
   border: 1px solid var(--border-line);
   cursor: pointer;
-  transition: all 0.1s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   background: var(--bg-surface);
   color: var(--text-phosphor);
 }
@@ -264,7 +222,7 @@ h1, h2, h3, .macro-title {
   cursor: not-allowed;
 }
 
-/* High-Contrast Action Variants */
+/* Refined High-Contrast Variants */
 .btn-primary {
   background: var(--text-phosphor);
   color: var(--bg-terminal);
@@ -273,27 +231,29 @@ h1, h2, h3, .macro-title {
 .btn-primary:hover:not(:disabled) {
   background: #ffffff;
   color: #000000;
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
 }
 
 .btn-success {
   background: var(--accent-terminal);
-  color: #050b03;
+  color: #052414;
   border: 1px solid var(--accent-terminal);
+  font-weight: 700;
 }
 .btn-success:hover:not(:disabled) {
-  background: #5df73d;
-  box-shadow: 0 0 12px rgba(74, 246, 38, 0.5);
+  background: #4ade80;
+  color: #000000;
 }
 
+/* Quiet Threat Launcher Chips */
 .btn-danger {
-  background: var(--accent-red);
-  color: #ffffff;
-  border: 1px solid var(--accent-red);
+  background: var(--bg-surface);
+  color: var(--accent-red);
+  border: 1px solid rgba(208, 59, 59, 0.3);
 }
 .btn-danger:hover:not(:disabled) {
-  background: #ff2a2a;
-  box-shadow: 0 0 12px rgba(230, 25, 25, 0.5);
+  background: rgba(208, 59, 59, 0.18);
+  border-color: var(--accent-red);
+  color: #ffffff;
 }
 
 .btn-secondary {
@@ -302,66 +262,39 @@ h1, h2, h3, .macro-title {
   border: 1px solid var(--border-line);
 }
 .btn-secondary:hover:not(:disabled) {
-  border-color: var(--text-phosphor);
+  border-color: var(--border-bright);
   color: var(--text-phosphor);
 }
 
-/* Pulsing Hardware Telemetry Dot */
+/* Pulsing Telemetry Dot */
 .pulse-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   background: var(--accent-terminal);
-  box-shadow: 0 0 6px var(--accent-terminal);
-  animation: telemetry-pulse 2s infinite ease-in-out;
+  box-shadow: 0 0 5px var(--accent-terminal);
+  animation: telemetry-pulse 2.5s infinite ease-in-out;
 }
 
 @keyframes telemetry-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.3; transform: scale(0.85); }
+  50% { opacity: 0.35; transform: scale(0.85); }
 }
 
-/* Tactical Warning Stripes (Hazard Pattern) */
-.hazard-stripe-bar {
-  height: 4px;
-  width: 100%;
-  background: repeating-linear-gradient(
-    45deg,
-    var(--accent-red),
-    var(--accent-red) 8px,
-    #140303 8px,
-    #140303 16px
-  );
-  border-bottom: 1px solid var(--border-line);
-}
-
-.hazard-stripe-amber {
-  height: 4px;
-  width: 100%;
-  background: repeating-linear-gradient(
-    45deg,
-    var(--accent-amber),
-    var(--accent-amber) 8px,
-    #140d03 8px,
-    #140d03 16px
-  );
-  border-bottom: 1px solid var(--border-line);
-}
-
-/* Monospace Telemetry Manifest / Data Block */
+/* Monospace Telemetry Block */
 .code-block {
   background: var(--bg-recessed);
   border: 1px solid var(--border-line);
-  padding: 10px 12px;
+  padding: 8px 10px;
   font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   color: var(--text-secondary);
   overflow-x: auto;
-  line-height: 1.45;
+  line-height: 1.4;
 }
 
 /* Section Divider Rule */
 hr.divider {
   border: none;
   border-top: 1px solid var(--border-line);
-  margin: 12px 0;
+  margin: 10px 0;
 }

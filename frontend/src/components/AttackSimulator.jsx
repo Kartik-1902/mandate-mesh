@@ -5,42 +5,43 @@ import { triggerAttack } from '../services/api';
 export default function AttackSimulator({ onAttackSuccess, onLedgerChange }) {
   const [loadingAttackId, setLoadingAttackId] = useState(null);
   const [attackResult, setAttackResult] = useState(null);
+  const [activeHoverId, setActiveHoverId] = useState(null);
 
   const attacks = [
     {
       id: 1,
-      name: 'VECTOR 01: OVER-BUDGET SPEND',
-      desc: 'Agent attempts luxury ₹4,940 cake against ₹1,500 budget cap.',
+      tag: '01: OVER-BUDGET',
+      name: 'Over-Budget Spend (₹4,940 vs ₹1,500)',
       expected: 'HTTP 403 · POLICY_SPEND_CAP_EXCEEDED',
     },
     {
       id: 2,
-      name: 'VECTOR 02: PROMPT INJECTION SKU',
-      desc: 'Prompt requests unapproved "GOLD-COIN" to bypass catalog.',
+      tag: '02: INJECTION SKU',
+      name: 'Prompt Injection Fake SKU (GOLD-COIN)',
       expected: 'HTTP 404 · CATALOG_SKU_NOT_FOUND',
     },
     {
       id: 3,
-      name: 'VECTOR 03: MITM CART TAMPERING',
-      desc: 'Attacker modifies total_paise inside signed cart JWT in transit.',
+      tag: '03: MITM TAMPER',
+      name: 'MITM Cart Total Tampering',
       expected: 'HTTP 409 · POLICY_CART_SIGNATURE_INVALID',
     },
     {
       id: 4,
-      name: 'VECTOR 04: WEBHOOK REPLAY ATTACK',
-      desc: 'Replays payment.captured webhook 3x to trigger double debit.',
+      tag: '04: WEBHOOK REPLAY',
+      name: 'Idempotent Webhook Replay (3x)',
       expected: 'HTTP 200 · DEDUPLICATED (0 Double Debits)',
     },
     {
       id: 5,
-      name: 'VECTOR 05: CROSS-MERCHANT KEY FORGERY',
-      desc: 'Submits Sweet Delight signature under CakeHouse identity.',
+      tag: '05: KEY FORGERY',
+      name: 'Cross-Merchant Key Forgery',
       expected: 'HTTP 409 · POLICY_CART_SIGNATURE_INVALID',
     },
     {
       id: 6,
-      name: 'VECTOR 06: EXPIRED QUOTE REPLAY',
-      desc: 'Attempts to authorize expired cart quote after TTL expiration.',
+      tag: '06: EXPIRED QUOTE',
+      name: 'Expired Quote Replay (Post-TTL)',
       expected: 'HTTP 409 · POLICY_CART_EXPIRED',
     },
   ];
@@ -64,67 +65,73 @@ export default function AttackSimulator({ onAttackSuccess, onLedgerChange }) {
     }
   };
 
-  return (
-    <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', gap: '14px', borderTop: '3px solid var(--accent-red)' }}>
-      <div className="hazard-stripe-bar" style={{ marginTop: '-16px', marginLeft: '-16px', marginRight: '-16px', width: 'calc(100% + 32px)' }} />
+  const hoveredAttack = attacks.find((a) => a.id === activeHoverId);
 
+  return (
+    <div className="panel-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '2px solid var(--accent-red)' }}>
+      
       {/* Header */}
-      <div className="panel-card-header" style={{ marginBottom: 0 }}>
+      <div className="panel-card-header" style={{ marginBottom: 0, paddingBottom: '6px' }}>
         <div className="panel-title">
-          <Skull size={16} color="var(--accent-red)" />
-          <span>ADVERSARIAL THREAT BENCH // FAIL-CLOSED VERIFICATION</span>
+          <Skull size={14} color="var(--accent-red)" />
+          <span>ADVERSARIAL THREAT BENCH</span>
         </div>
-        <span className="badge badge-red">FAIL-CLOSED ENFORCED</span>
+        <span className="badge badge-red" style={{ fontSize: '0.65rem' }}>
+          FAIL-CLOSED ENFORCED
+        </span>
       </div>
 
-      {/* Vector Trigger Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+      {/* Compact Vector Action Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '6px' }}>
         {attacks.map((atk) => {
           const isLoading = loadingAttackId === atk.id;
 
           return (
-            <div
+            <button
               key={atk.id}
+              onClick={() => handleRunAttack(atk.id)}
+              onMouseEnter={() => setActiveHoverId(atk.id)}
+              onMouseLeave={() => setActiveHoverId(null)}
+              disabled={isLoading}
+              className="btn btn-danger"
               style={{
-                background: 'var(--bg-recessed)',
-                border: '1px solid var(--border-line)',
-                padding: '12px',
+                padding: '6px 8px',
+                fontSize: '0.68rem',
                 display: 'flex',
-                flexDirection: 'column',
                 justifyContent: 'space-between',
-                gap: '8px',
+                alignItems: 'center',
+                textAlign: 'left',
               }}
             >
-              <div>
-                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-phosphor)' }}>
-                  {atk.name}
-                </div>
-                <p style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: 1.35 }}>
-                  {atk.desc}
-                </p>
-              </div>
-
-              <div style={{
-                background: 'var(--bg-terminal)',
-                padding: '4px 6px',
-                border: '1px solid var(--border-dim)',
-                fontSize: '0.65rem',
-                color: 'var(--text-muted)',
-              }}>
-                EXPECTED: <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{atk.expected}</span>
-              </div>
-
-              <button
-                className="btn btn-danger"
-                onClick={() => handleRunAttack(atk.id)}
-                disabled={isLoading}
-                style={{ fontSize: '0.7rem', padding: '6px 10px', width: '100%' }}
-              >
-                {isLoading ? 'SIMULATING VECTOR...' : `[ LAUNCH VECTOR 0${atk.id} ]`}
-              </button>
-            </div>
+              <span>[ {atk.tag} ]</span>
+              <span style={{ fontSize: '0.62rem', opacity: 0.85 }}>{isLoading ? '...' : 'EXEC'}</span>
+            </button>
           );
         })}
+      </div>
+
+      {/* Vector Description / Expected Outcome Strip */}
+      <div style={{
+        background: 'var(--bg-recessed)',
+        border: '1px solid var(--border-line)',
+        padding: '4px 8px',
+        fontSize: '0.68rem',
+        color: 'var(--text-muted)',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        minHeight: '24px',
+      }}>
+        {hoveredAttack ? (
+          <>
+            <span style={{ color: 'var(--text-phosphor)', fontWeight: 600 }}>{hoveredAttack.name}</span>
+            <span style={{ color: 'var(--text-secondary)' }}>{hoveredAttack.expected}</span>
+          </>
+        ) : (
+          <span style={{ color: 'var(--text-dim)' }}>
+            HOVER OVER A THREAT VECTOR TO INSPECT TARGET INVARIANT · CLICK TO EXECUTE
+          </span>
+        )}
       </div>
 
       {/* Threat Diagnostic Output Console */}
@@ -132,38 +139,39 @@ export default function AttackSimulator({ onAttackSuccess, onLedgerChange }) {
         <div style={{
           background: 'var(--bg-recessed)',
           border: '1px solid var(--border-bright)',
-          borderLeft: '4px solid var(--accent-red)',
-          padding: '12px',
+          borderLeft: '3px solid var(--accent-red)',
+          padding: '8px 10px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '8px',
+          gap: '6px',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Terminal size={14} color="var(--accent-red)" />
-              <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--accent-red)', textTransform: 'uppercase' }}>
-                [ THREAT INTERCEPT DIAGNOSTIC RESULT ]
+              <Terminal size={12} color="var(--accent-red)" />
+              <span style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--accent-red)', textTransform: 'uppercase' }}>
+                INTERCEPT DIAGNOSTIC RESULT
               </span>
             </div>
-            <span className="badge badge-green" style={{ fontSize: '0.65rem' }}>
-              INVARIANT PRESERVED · 0 RUPEES MOVED
+            <span className="badge badge-green" style={{ fontSize: '0.62rem' }}>
+              0 RUPEES MOVED
             </span>
           </div>
 
-          <div style={{
+          <pre style={{
+            margin: 0,
+            padding: '6px 8px',
             background: 'var(--bg-terminal)',
             border: '1px solid var(--border-line)',
-            padding: '10px',
             fontFamily: 'var(--font-mono)',
-            fontSize: '0.72rem',
+            fontSize: '0.68rem',
             color: 'var(--text-secondary)',
-            maxHeight: '180px',
+            maxHeight: '120px',
             overflowY: 'auto',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
           }}>
-            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              {JSON.stringify(attackResult, null, 2)}
-            </pre>
-          </div>
+            {JSON.stringify(attackResult, null, 2)}
+          </pre>
         </div>
       )}
 
