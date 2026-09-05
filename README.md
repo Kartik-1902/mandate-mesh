@@ -8,6 +8,28 @@ The answer is a fail-closed state machine where the LLM is structurally incapabl
 
 ---
 
+## Table of Contents
+
+- [The Problem](#the-problem)
+- [Architecture](#architecture)
+- [Cryptographic Chain of Custody](#cryptographic-chain-of-custody)
+- [The Seven Quote Verification Gates](#the-seven-quote-verification-gates)
+- [Multi-Merchant Routing](#multi-merchant-routing)
+- [Mandate Finite State Machine](#mandate-finite-state-machine)
+- [Adversarial Resilience](#adversarial-resilience)
+- [Human-in-the-Loop (HITL) Escalation](#human-in-the-loop-hitl-escalation)
+- [Partial Completion](#partial-completion)
+- [Audit Ledger](#audit-ledger)
+- [Test Suite](#test-suite)
+- [Stack](#stack)
+- [Setup](#setup)
+- [API Reference](#api-reference)
+- [Design Decisions](#design-decisions)
+- [Project Structure](#project-structure)
+- [Core Invariant](#core-invariant)
+
+---
+
 ## The Problem
 
 Modern AI agents can browse, decide, and initiate — but payment APIs don't care whether the instruction came from a verified human or a hallucinating model. An agent told to "buy birthday supplies" could silently overspend, authorize merchants you've never heard of, or be manipulated by a prompt-injected product description to bypass your budget entirely.
