@@ -12,16 +12,19 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
-# Copy dependency definition
-COPY pyproject.toml ./
+# Copy dependency definitions and metadata needed by build backend
+COPY pyproject.toml uv.lock README.md ./
 
-# Install dependencies using uv
-RUN uv sync --no-dev
+# Install third-party dependencies first without building the project (leverages Docker cache)
+RUN uv sync --no-install-project --no-dev
 
 # Copy application source code and migrations
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY app ./app
+
+# Complete installation with project package in editable mode
+RUN uv sync --no-dev
 
 # Add virtual environment to PATH
 ENV PATH="/app/.venv/bin:$PATH"
