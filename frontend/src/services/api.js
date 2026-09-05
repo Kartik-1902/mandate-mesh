@@ -3,7 +3,28 @@
  * Connects Control Tower UI to FastAPI backend endpoints.
  */
 
-const API_BASE = "http://localhost:8000/api/v1";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000/api/v1";
+
+export async function runMultiLegJourney(
+  goal = "I need a birthday cake and candles under Rs. 1500",
+  spendCapPaise = 150000,
+  simulateLeg2Failure = true
+) {
+  const res = await fetch(`${API_BASE}/demo/multi-leg-journey`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      goal,
+      spend_cap_paise: spendCapPaise,
+      simulate_leg2_failure: simulateLeg2Failure,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error?.message || err.detail || "Multi-leg journey execution failed");
+  }
+  return res.json();
+}
 
 export async function deliberateGoal(goal, initialBudgetPaise = null, allowedMerchantIds = null) {
   const payload = {

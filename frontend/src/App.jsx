@@ -6,6 +6,7 @@ import MandateChainVisualizer from './components/MandateChainVisualizer';
 import AttackSimulator from './components/AttackSimulator';
 import AuditLedgerTable from './components/AuditLedgerTable';
 import SpecDrawer from './components/SpecDrawer';
+import TransactionReactor from './components/TransactionReactor';
 import { deliberateGoal, triggerAttack, verifyLedgerChain } from './services/api';
 
 class ErrorBoundary extends Component {
@@ -44,6 +45,7 @@ export default function App() {
   const [ledgerTrigger, setLedgerTrigger] = useState(0);
   const [chainValid, setChainValid] = useState(true);
   const [sessionKey, setSessionKey] = useState(0);
+  const [activeMode, setActiveMode] = useState('journey'); // 'journey' | 'bench' | 'ledger'
 
   // First-visit auto-open or ?demo=true URL parameter override
   const searchParams = new URLSearchParams(window.location.search);
@@ -169,51 +171,164 @@ export default function App() {
         isExecuting={isMacroExecuting}
       />
 
-      {/* 2. Primary Operations Grid */}
-      <div className="main-grid">
-        {/* Left: Autonomous Buyer Agent + HITL Escalation Modal */}
-        <div>
-          <ErrorBoundary key={`agent-${sessionKey}`}>
-            <AgentChat
-              onDeliberateSuccess={handleAgentDeliberate}
-              onEscalateSuccess={handleEscalateSuccess}
-              onLedgerChange={triggerLedgerReload}
-            />
-          </ErrorBoundary>
+      {/* 2. Top-Level Console Mode Navigation Strip */}
+      <div
+        className="panel-card"
+        style={{
+          padding: '8px 14px',
+          background: 'var(--bg-panel)',
+          border: '1px solid var(--border-bright)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '10px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.68rem',
+              color: 'var(--text-muted)',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              marginRight: '4px',
+            }}
+          >
+            VIEW:
+          </span>
+
+          <button
+            className={`btn ${activeMode === 'journey' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setActiveMode('journey')}
+            style={{
+              fontSize: '0.74rem',
+              padding: '5px 12px',
+              fontWeight: 700,
+            }}
+          >
+            <span>01 // GUIDED TRANSACTION JOURNEY</span>
+            {activeMode === 'journey' && (
+              <span className="badge badge-green" style={{ marginLeft: '4px' }}>
+                ACTIVE
+              </span>
+            )}
+          </button>
+
+          <button
+            className={`btn ${activeMode === 'bench' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setActiveMode('bench')}
+            style={{
+              fontSize: '0.74rem',
+              padding: '5px 12px',
+              fontWeight: 700,
+            }}
+          >
+            <span>02 // ADVERSARIAL THREAT BENCH</span>
+          </button>
+
+          <button
+            className={`btn ${activeMode === 'ledger' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setActiveMode('ledger')}
+            style={{
+              fontSize: '0.74rem',
+              padding: '5px 12px',
+              fontWeight: 700,
+            }}
+          >
+            <span>03 // CRYPTOGRAPHIC AUDIT LEDGER</span>
+          </button>
         </div>
 
-        {/* Right: Competitive Quotes + Cryptographic Mandate Chain + Adversarial Attack Playground */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.68rem',
+              color: 'var(--text-secondary)',
+            }}
+          >
+            {activeMode === 'journey' && '⚡ 9-Stage End-to-End Product Narrative for Hackathon Evaluation'}
+            {activeMode === 'bench' && '🛡️ 6-Vector Live Threat Injection Suite (Zero Rupees Moved)'}
+            {activeMode === 'ledger' && '🔗 Real-Time Append-Only SHA-256 Hash Chain Explorer'}
+          </span>
+        </div>
+      </div>
+
+      {/* 3. Mode Content View */}
+      {activeMode === 'journey' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <ErrorBoundary key={`quote-${sessionKey}`}>
-            <CompetitiveQuotePanel
-              routingDecision={routingDecision}
-              candidateQuotes={candidateQuotes}
-            />
-          </ErrorBoundary>
-
-          <ErrorBoundary key={`chain-${sessionKey}`}>
-            <MandateChainVisualizer
-              activeMandate={activeMandate}
-              onCaptureSuccess={triggerLedgerReload}
+          <ErrorBoundary key={`journey-${sessionKey}`}>
+            <TransactionReactor
+              onSwitchToAuditLedger={() => setActiveMode('ledger')}
               onLedgerChange={triggerLedgerReload}
             />
           </ErrorBoundary>
 
-          <ErrorBoundary key={`attack-${sessionKey}`}>
-            <AttackSimulator
-              onAttackSuccess={triggerLedgerReload}
-              onLedgerChange={triggerLedgerReload}
-            />
+          <ErrorBoundary>
+            <AuditLedgerTable refreshTrigger={ledgerTrigger} />
           </ErrorBoundary>
         </div>
-      </div>
+      )}
 
-      {/* 3. Bottom: Real-Time Hash-Chained Audit Ledger */}
-      <div>
-        <ErrorBoundary>
-          <AuditLedgerTable refreshTrigger={ledgerTrigger} />
-        </ErrorBoundary>
-      </div>
+      {activeMode === 'bench' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {/* 2-Column Threat & Agent Operation Grid */}
+          <div className="main-grid">
+            {/* Left: Autonomous Buyer Agent + HITL Escalation Modal */}
+            <div>
+              <ErrorBoundary key={`agent-${sessionKey}`}>
+                <AgentChat
+                  onDeliberateSuccess={handleAgentDeliberate}
+                  onEscalateSuccess={handleEscalateSuccess}
+                  onLedgerChange={triggerLedgerReload}
+                />
+              </ErrorBoundary>
+            </div>
+
+            {/* Right: Competitive Quotes + Cryptographic Mandate Chain + Adversarial Attack Playground */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <ErrorBoundary key={`quote-${sessionKey}`}>
+                <CompetitiveQuotePanel
+                  routingDecision={routingDecision}
+                  candidateQuotes={candidateQuotes}
+                />
+              </ErrorBoundary>
+
+              <ErrorBoundary key={`chain-${sessionKey}`}>
+                <MandateChainVisualizer
+                  activeMandate={activeMandate}
+                  onCaptureSuccess={triggerLedgerReload}
+                  onLedgerChange={triggerLedgerReload}
+                />
+              </ErrorBoundary>
+
+              <ErrorBoundary key={`attack-${sessionKey}`}>
+                <AttackSimulator
+                  onAttackSuccess={triggerLedgerReload}
+                  onLedgerChange={triggerLedgerReload}
+                />
+              </ErrorBoundary>
+            </div>
+          </div>
+
+          <div>
+            <ErrorBoundary>
+              <AuditLedgerTable refreshTrigger={ledgerTrigger} />
+            </ErrorBoundary>
+          </div>
+        </div>
+      )}
+
+      {activeMode === 'ledger' && (
+        <div>
+          <ErrorBoundary>
+            <AuditLedgerTable refreshTrigger={ledgerTrigger} />
+          </ErrorBoundary>
+        </div>
+      )}
     </div>
   );
 }
