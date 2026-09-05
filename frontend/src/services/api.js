@@ -2,8 +2,9 @@
  * Mandate Mesh API Service
  * Connects Control Tower UI to FastAPI backend endpoints.
  */
-
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000/api/v1";
+// Normalize API_BASE: trim whitespace, strip trailing slashes, and ensure /api/v1 suffix is present
+const rawBase = (import.meta.env.VITE_API_BASE || "http://localhost:8000/api/v1").trim().replace(/\/+$/, "");
+const API_BASE = rawBase.endsWith("/api/v1") ? rawBase : `${rawBase}/api/v1`;
 
 export async function runMultiLegJourney(
   goal = "I need a birthday cake and candles under Rs. 1500",
