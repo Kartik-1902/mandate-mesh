@@ -8,7 +8,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000/api/v1"
 export async function runMultiLegJourney(
   goal = "I need a birthday cake and candles under Rs. 1500",
   spendCapPaise = 150000,
-  simulateLeg2Failure = true
+  scenario = "partial_failure"
 ) {
   const res = await fetch(`${API_BASE}/demo/multi-leg-journey`, {
     method: "POST",
@@ -16,7 +16,7 @@ export async function runMultiLegJourney(
     body: JSON.stringify({
       goal,
       spend_cap_paise: spendCapPaise,
-      simulate_leg2_failure: simulateLeg2Failure,
+      scenario,
     }),
   });
   if (!res.ok) {

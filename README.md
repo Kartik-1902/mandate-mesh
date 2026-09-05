@@ -2,277 +2,583 @@
 
 **The LLM proposes. Deterministic Python disposes. An unauthorized rupee cannot move.**
 
-Mandate Mesh is a cryptographic policy rail and multi-merchant routing engine for autonomous AI purchasing agents. It solves the hardest problem in agentic commerce: how do you let an AI agent shop on your behalf without giving it unlimited financial authority?
+Mandate Mesh is a cryptographic policy rail and multi-merchant routing engine for autonomous AI purchasing agents. It solves a core problem in agentic commerce: how do you let an AI agent shop and initiate payments without giving the model unrestricted financial authority?
 
-The answer is a fail-closed state machine where the LLM is structurally incapable of authorizing payments. Every authorization flows through deterministic Python: verified cryptographic signatures, integer-paise arithmetic, and an append-only hash-chained audit ledger.
+The answer is a fail-closed control plane. The LLM proposes products; deterministic Python decides what is financially executable. Every authorization is bounded by a signed user intent, merchant-signed quotes, integer-paise accounting, a formal mandate state machine, Just-In-Time (JIT) revalidation, and an append-only SHA-256 audit ledger.
 
----
-
-## Table of Contents
-
-- [The Problem](#the-problem)
-- [Architecture](#architecture)
-- [Cryptographic Chain of Custody](#cryptographic-chain-of-custody)
-- [The Seven Quote Verification Gates](#the-seven-quote-verification-gates)
-- [Multi-Merchant Routing](#multi-merchant-routing)
-- [Mandate Finite State Machine](#mandate-finite-state-machine)
-- [Adversarial Resilience](#adversarial-resilience)
-- [Human-in-the-Loop (HITL) Escalation](#human-in-the-loop-hitl-escalation)
-- [Partial Completion](#partial-completion)
-- [Audit Ledger](#audit-ledger)
-- [Test Suite](#test-suite)
-- [Stack](#stack)
-- [Setup](#setup)
-- [API Reference](#api-reference)
-- [Design Decisions](#design-decisions)
-- [Project Structure](#project-structure)
-- [Core Invariant](#core-invariant)
+> **Razorpay is the payment execution rail; Mandate Mesh is the bounded authorization control plane that decides whether an AI-generated purchase is allowed to reach that rail.**
 
 ---
 
-## The Problem
+## 🚀 Live Demo
 
-Modern AI agents can browse, decide, and initiate — but payment APIs don't care whether the instruction came from a verified human or a hallucinating model. An agent told to "buy birthday supplies" could silently overspend, authorize merchants you've never heard of, or be manipulated by a prompt-injected product description to bypass your budget entirely.
+The repository includes a judge-facing **Control Tower** for running and observing the transaction engine.
 
-Mandate Mesh eliminates this attack surface. The agent proposes. A deterministic policy engine disposes. The LLM has zero financial authority.
+### 90-second walkthrough
+
+1. Open the Control Tower.
+2. Enter a natural-language shopping request and spend cap.
+3. Run the **Guided Transaction Journey**.
+4. Observe the control-plane flow: intent → AI proposal → policy boundary → PurchasePlan → reservation → JIT → independent payment legs → settlement → audit proof.
+5. Run the same request in **All Success** and **Leg 2 Stock Exhaustion** scenarios.
+6. Inspect the returned intent ID, PurchasePlan ID, mandate IDs, Razorpay order IDs, JIT verdicts, settlement accounting, and run-scoped audit events.
+7. Switch to the **Adversarial Threat Bench** to exercise over-budget spend, cart tampering, signature forgery, webhook replay, and stale-quote scenarios.
+
+The Guided Journey is an **observability projection of the backend engine**, not a second business-logic implementation. Values shown in the journey are intended to come from the authoritative backend execution state.
+
+> **Submission note:** add the deployed frontend and backend URLs here before final submission.
 
 ---
 
-## Architecture
+## 🎯 What It Solves
 
-The system is a strict pipeline. Each stage produces a cryptographically signed artifact that the next stage verifies before proceeding.
+Modern AI agents can browse, reason, select products, and call tools. Payment systems need stronger guarantees than a model's natural-language intent.
 
+An autonomous buyer should not be able to:
+
+- exceed a user-defined spend cap,
+- purchase from an unauthorized merchant,
+- alter a merchant quote,
+- replay a payment event,
+- bypass merchant/product identity,
+- continue using an expired intent or quote,
+- corrupt a successful payment because a different merchant leg failed.
+
+Mandate Mesh separates **reasoning authority** from **financial authority**:
+
+```text
+AI / LLM
+  │
+  │ proposes products and intent interpretation
+  ▼
+Deterministic Control Plane
+  │
+  ├── signed user intent
+  ├── merchant allowlists
+  ├── quote verification
+  ├── deterministic routing
+  ├── aggregate budget reservation
+  ├── mandate FSM
+  ├── JIT inventory / price revalidation
+  └── idempotent payment processing
+  │
+  ▼
+Razorpay execution rail
 ```
+
+---
+
+## 💡 Why Razorpay + Mandate Mesh
+
+Razorpay provides payment primitives for creating and processing payments. Mandate Mesh adds an authorization layer above those primitives.
+
+| Responsibility                           |          Mandate Mesh |        Razorpay |
+| ---------------------------------------- | --------------------: | --------------: |
+| Interpret natural-language shopping goal |                    ✅ |               — |
+| Bound AI authority                       |                    ✅ |               — |
+| Authorize merchants/categories           |                    ✅ |               — |
+| Validate merchant-signed quotes          |                    ✅ |               — |
+| Determine aggregate spend exposure       |                    ✅ |               — |
+| Create payment order                     |    Requests execution |              ✅ |
+| Process payment                          |                     — |              ✅ |
+| Payment lifecycle / status               |       Consumes result |              ✅ |
+| Webhook delivery                         | Verifies + reconciles | ✅ sends events |
+| Final internal authorization decision    |                    ✅ |               — |
+| Immutable internal audit trail           |                    ✅ |               — |
+
+This separation is also relevant to AI-enabled payment tooling. Razorpay's official MCP Server lets compatible AI assistants interact with Razorpay APIs, including payment and order operations. Mandate Mesh addresses the complementary question: **what should an AI agent be authorized to do with those payment capabilities?**
+
+Official references:
+
+- [Razorpay Standard Checkout](https://razorpay.com/docs/payments/payment-gateway/web-integration/standard/)
+- [Razorpay Integration Steps](https://razorpay.com/docs/payments/payment-gateway/web-integration/standard/integration-steps/)
+- [Razorpay Webhooks — Validate & Test](https://razorpay.com/docs/webhooks/validate-test/)
+- [Razorpay MCP Server](https://razorpay.com/docs/mcp-server/)
+- [Razorpay MCP Tools Reference](https://razorpay.com/docs/mcp-server/tools-reference/)
+
+---
+
+## 🏗 Architecture
+
+The system is a strict pipeline. AI-generated proposals are converted into cryptographically bounded artifacts before any payment execution is allowed.
+
+```text
 Natural Language Goal
         ↓
 ┌─────────────────────────────┐
-│   LangGraph Buyer Agent     │  Gemini LLM deliberates, browses catalog,
-│   (app/agent.py)            │  proposes SKU selections — no prices, no amounts
+│   LangGraph Buyer Agent     │  Gemini LLM deliberates and proposes
+│   (app/agent.py)            │  product/SKU selections only
+│                             │  no payment credentials or price authority
 └─────────────┬───────────────┘
               ↓
 ┌─────────────────────────────┐
 │   UserIntentCredential      │  ES256 JWT signed by user key
-│   (app/schemas.py)          │  Contains: spend_cap_paise, allowed_categories,
-│                             │  allowed_merchant_ids, TTL, nonce (replay guard)
+│   (app/schemas.py)          │  spend cap, categories, merchants, TTL, nonce
 └─────────────┬───────────────┘
               ↓
 ┌─────────────────────────────┐
-│   Multi-Merchant Quote      │  app/quote_router.py verifies each quote
-│   Router (app/quote_router) │  through 7 gates: merchant allowlist, category
-│                             │  allowlist, signature validity, cart hash,
-│                             │  budget cap, TTL, stock status
+│   Quote Verification        │  7 deterministic verification gates
+│   (app/quote_router.py)     │  merchant, category, signature, hash,
+│                             │  TTL, spend cap, live stock
 └─────────────┬───────────────┘
               ↓
 ┌─────────────────────────────┐
-│   Mixed-Basket Planner      │  app/basket_planner.py allocates each product
-│   (app/basket_planner.py)   │  to the cheapest verified merchant.
-│                             │  All arithmetic in integer paise (zero float).
+│   Mixed-Basket Planner      │  deterministic merchant allocation
+│   (app/basket_planner.py)   │  integer-paise arithmetic
 └─────────────┬───────────────┘
               ↓
 ┌─────────────────────────────┐
-│   Policy Rail               │  app/policy.py: atomic spend reservation
-│   (app/policy.py)           │  under SELECT FOR UPDATE. Issues PaymentMandate
-│                             │  JWT signed by platform key. Single DB transaction
-│                             │  for reservation + mandate + ledger append.
+│   Policy + PurchasePlan     │  aggregate authorization and reservation
+│   (app/policy.py)           │  row-locked budget evaluation
+│                             │  one intent → one plan → N mandates
 └─────────────┬───────────────┘
               ↓
 ┌─────────────────────────────┐
-│   HITL + JIT Execution      │  app/hitl_execution.py: re-validates quotes
-│   (app/hitl_execution.py)   │  just before payment. Falls back to runner-up
-│                             │  on stockout. Executes each merchant leg
-│                             │  independently. PARTIAL_COMPLETE on leg failure.
+│   HITL + JIT Execution      │  exact-basket revalidation, independent legs
+│   (app/hitl_execution.py)   │  price/stock fail-closed handling
+│                             │  PARTIAL_COMPLETE support
 └─────────────┬───────────────┘
               ↓
 ┌─────────────────────────────┐
-│   Razorpay Orders API       │  Per-leg Razorpay order creation and webhook
-│   (app/razorpay_client.py)  │  capture. HMAC-verified webhook delivery.
-│                             │  Deduplication on razorpay_payment_id.
+│   Razorpay                  │  per-leg order execution + payment lifecycle
+│   (app/razorpay_client.py)  │  test-mode / mock demo support
 └─────────────┬───────────────┘
               ↓
 ┌─────────────────────────────┐
-│   SHA-256 Audit Ledger      │  app/ledger.py: append-only, backward hash-
-│   (app/ledger.py)           │  chained. Every lifecycle transition sealed.
-│                             │  verify_chain() mathematically validates the
-│                             │  entire ledger from genesis to head.
+│   Webhooks + Reconciliation │  HMAC verification, deduplication,
+│   (app/webhooks.py)         │  state transitions and accounting
+└─────────────┬───────────────┘
+              ↓
+┌─────────────────────────────┐
+│   SHA-256 Audit Ledger      │  append-only backward hash chain
+│   (app/ledger.py)           │  verify_chain() validates genesis → head
 └─────────────────────────────┘
 ```
 
 ---
 
-## Cryptographic Chain of Custody
+## 💳 Razorpay Payment Flow
 
-Every artifact in the pipeline is signed and verified. No unsigned data crosses a trust boundary.
+Mandate Mesh deliberately keeps gateway execution downstream of deterministic authorization.
 
-| Artifact | Algorithm | Signer | Verified By |
-|---|---|---|---|
-| `UserIntentCredential` | ES256 (NIST P-256) | User private key | Policy rail at mandate issuance |
-| `MerchantSignedCart` | ES256 (NIST P-256) | Merchant private key | Quote router (7-gate verification) |
-| `PaymentMandate` | ES256 (NIST P-256) | Platform private key | HITL execution engine |
-| `PaymentReceipt` | ES256 (NIST P-256) | Platform private key | Consumer verification |
-| Webhook payload | HMAC-SHA256 | Razorpay | `app/webhooks.py` |
-| Audit ledger entries | SHA-256 chain | Platform | `verify_chain()` |
+```text
+User Goal
+   ↓
+AI Proposal
+   ↓
+Signed Intent + Policy Validation
+   ↓
+Deterministic PurchasePlan
+   ↓
+Aggregate Reservation
+   ↓
+Per-Leg JIT Validation
+   ↓
+Razorpay Order Creation
+   ↓
+Razorpay Checkout / Payment
+   ↓
+Payment Verification / Webhook
+   ↓
+Mandate State Transition
+   ↓
+IntentRegistry Accounting
+   ↓
+PaymentReceipt + Audit Ledger
+```
 
-Per **ADR-002**: no module other than `app/crypto.py` may directly call `cryptography` or `jwt` primitives. The entire cryptographic boundary is centralized and auditable in a single 632-line file.
+Razorpay's Standard Checkout documentation requires server-side order creation and server-side verification of the returned payment signature before fulfillment. Successful payment data includes the Razorpay payment ID, order ID, and signature; the signature is verified on the server using the server-known order ID and account secret. See the [official integration steps](https://razorpay.com/docs/payments/payment-gateway/web-integration/standard/integration-steps/).
+
+For asynchronous events, Razorpay webhooks use an `X-Razorpay-Signature` generated from the configured webhook secret. Razorpay also documents duplicate webhook delivery and recommends idempotent handling. See [Validate and Test Webhooks](https://razorpay.com/docs/webhooks/validate-test/).
+
+Mandate Mesh applies those gateway events to its own mandate FSM and financial-control state rather than allowing a payment callback to directly mutate arbitrary application state.
+
+---
+
+## 🧪 Razorpay Test Mode & Demo Reality
+
+The project is designed for a hackathon-safe environment. **No real customer money is required for the repository's demonstration flows.** Razorpay Test Mode uses test credentials and simulated payment behavior instead of real monetary movement.
+
+Be explicit about the current demo boundary:
+
+| Component                   | Status in the demo architecture                                          |
+| --------------------------- | ------------------------------------------------------------------------ |
+| LLM deliberation            | Real Gemini/LangGraph path where enabled                                 |
+| Intent credential           | Real signed application artifact                                         |
+| Quote validation            | Real deterministic code                                                  |
+| PurchasePlan                | Real database state                                                      |
+| Reservation accounting      | Real database state                                                      |
+| Cryptographic signing       | Real application cryptography                                            |
+| JIT validation              | Real deterministic engine                                                |
+| Partial-failure handling    | Real M8 engine                                                           |
+| Audit ledger                | Real append-only application ledger                                      |
+| Razorpay credentials        | Server-side only; use Test Mode for submission                           |
+| Guided demo payment capture | Controlled simulated webhook / mock Razorpay path where used by the demo |
+| Real money                  | **Never required**                                                       |
+
+Do not describe a simulated webhook as a live customer payment. The repository distinguishes **real control-plane execution** from **simulated/test gateway settlement**.
+
+---
+
+## 🤖 AI vs Financial Authority
+
+The core security property is structural rather than prompt-based.
+
+```text
+┌───────────────────────┐
+│       LLM / Agent     │
+│                       │
+│  Can propose:         │
+│  • products           │
+│  • SKUs               │
+│  • quantities         │
+│  • natural-language   │
+│    interpretation     │
+│                       │
+│  Cannot authorize:    │
+│  • financial amount   │
+│  • merchant authority │
+│  • payment credentials│
+│  • final execution    │
+└───────────┬───────────┘
+            ↓
+┌───────────────────────┐
+│ Deterministic Policy  │
+│        Rail           │
+│                       │
+│  • verifies intent    │
+│  • verifies quotes    │
+│  • checks budgets     │
+│  • reserves exposure  │
+│  • authorizes plans   │
+│  • controls execution │
+└───────────────────────┘
+```
+
+The agent proposal interface is intentionally narrower than the financial policy interface. Merchant-signed catalog data supplies authoritative prices used by deterministic code.
+
+---
+
+## 🔐 Cryptographic Chain of Custody
+
+Every trust-boundary artifact is signed or verified before it is used.
+
+| Artifact               | Algorithm          | Signer               | Verified By                 |
+| ---------------------- | ------------------ | -------------------- | --------------------------- |
+| `UserIntentCredential` | ES256 (NIST P-256) | User private key     | Policy rail                 |
+| `MerchantSignedCart`   | ES256 (NIST P-256) | Merchant private key | Quote / policy verification |
+| `PaymentMandate`       | ES256 (NIST P-256) | Platform private key | Execution engine            |
+| `PaymentReceipt`       | ES256 (NIST P-256) | Platform private key | Consumer verification       |
+| Razorpay webhook       | HMAC-SHA256        | Razorpay             | `app/webhooks.py`           |
+| Audit ledger entries   | SHA-256 chain      | Platform             | `verify_chain()`            |
+
+Per **ADR-002**, cryptographic primitives are centralized in `app/crypto.py` so signature and JWT handling remain auditable and consistent across trust boundaries.
 
 ### Cart Hash Integrity
 
-Every `MerchantSignedCart` carries a `cart_hash`: a SHA-256 digest of the canonical JSON of its line items, tax, total, and merchant ID (RFC 8785 serialization — sorted keys, no whitespace). The policy rail recomputes this hash independently and rejects any cart where the claimed hash does not match the computed hash. A man-in-the-middle cannot alter a cart line item without breaking the signature and the hash simultaneously.
+Every `MerchantSignedCart` carries a SHA-256 `cart_hash` over canonical cart content. The policy rail recomputes the hash independently and rejects a cart when the claimed hash does not match the computed representation.
 
 ---
 
-## The Seven Quote Verification Gates
+## ✅ The Seven Quote Verification Gates
 
-`verify_and_classify_quotes()` in `app/quote_router.py` runs every candidate quote through these gates in order. Any failure is terminal for that quote — it is classified and no further gates are evaluated.
+`verify_and_classify_quotes()` in `app/quote_router.py` evaluates every candidate quote through deterministic gates:
 
-1. **Merchant Allowlist Authorization** — merchant ID must appear in `UserIntentCredential.allowed_merchant_ids`
-2. **Category Authorization** — every line item category must be in `UserIntentCredential.allowed_categories`
-3. **Cart JWT Signature** — ES256 signature verified against the merchant's registered public key
-4. **Cart Hash Integrity** — recomputed SHA-256 cart hash must match the claimed `cart_hash` field
-5. **Cart TTL** — `expires_at` must be in the future relative to current UTC
-6. **Spend Cap** — `total_paise` must not exceed `UserIntentCredential.spend_cap_paise`
-7. **Live Stock Validation** — each SKU must be in-stock in the live database catalog
+1. **Merchant Allowlist Authorization** — merchant must be permitted by the user intent.
+2. **Category Authorization** — every line item category must be allowed.
+3. **Cart JWT Signature** — merchant signature must verify against its registered public key.
+4. **Cart Hash Integrity** — recomputed hash must match the signed cart.
+5. **Cart TTL** — quote must still be valid.
+6. **Spend Cap** — quote total must fit the authorized cap.
+7. **Live Stock Validation** — required SKUs must be in stock in the authoritative catalog.
 
----
-
-## Multi-Merchant Routing
-
-When a goal requires multiple products (e.g., a birthday cake from one merchant and candles from another), the basket planner allocates each product to the cheapest available verified merchant independently.
-
-**Optimization modes:**
-- `LOWEST_TOTAL_PRICE` — greedy per-product allocation. Mathematically optimal under the current commerce model (zero delivery fees, zero minimum order values, no volume tiers). See the explicit warning in `basket_planner.py` about when this stops being optimal.
-- `PREFER_SINGLE_MERCHANT` — consolidate to a single merchant when possible.
-- `LOWEST_PRICE_SINGLE_MERCHANT` — single-merchant constraint with price optimization.
-
-All routing decisions are deterministic, auditable, and visible in the Control Tower with explicit savings calculations vs. runner-up alternatives.
+Any failed gate rejects the quote rather than passing an uncertain artifact downstream.
 
 ---
 
-## Mandate Finite State Machine
+## 🧩 PurchasePlan + Multi-Merchant Execution
 
-Every `MandateRecord` follows a formal FSM enforced by `app/mandate_fsm.py`. Direct assignment to `record.status` is forbidden — all transitions must go through `transition()`, which raises `InvalidStateTransition` on illegal moves.
+A key abstraction is the aggregate `PurchasePlan`:
 
-```
-RESERVED ──────────────────────────────────── ORDER_CREATING
-                                                     │
-                           ┌─────────────────────────┤
-                           │                         │
-                      ORDER_CREATED           RELEASED (terminal)
-                           │
-           ┌───────────────┼───────────────┐
-           │               │               │
-   PAYMENT_CAPTURED  PAYMENT_PENDING  PAYMENT_FAILED ──► RELEASED
-   (terminal)              │               
-                    PAYMENT_CAPTURED  
-                    (terminal)        
+```text
+1 UserIntent
+      ↓
+1 PurchasePlan
+      ↓
+N Merchant Mandates
+      ↓
+N Razorpay Orders
 ```
 
-A `RELEASED` mandate returns its reserved paise to the `IntentRegistry` available balance. A `PAYMENT_CAPTURED` mandate is permanent — it can never be mutated.
+A PurchasePlan represents one coherent user purchase intent while keeping each merchant leg independently executable.
+
+Authorization is aggregate: the plan is validated and reserved before gateway execution. Execution is independent: one merchant leg may succeed while another fails. The plan therefore models physical-commerce reality without pretending that separate payments are transactionally atomic.
+
+Possible aggregate outcomes include:
+
+- `CONFIRMED` — authorized and awaiting execution.
+- `IN_PROGRESS` — one or more legs are actively executing.
+- `COMPLETE` — every leg is captured.
+- `PARTIAL_COMPLETE` — at least one leg is captured and another leg is failed, released, or pending.
+- `FAILED` — all legs reached unsuccessful terminal states.
 
 ---
 
-## Adversarial Resilience
+## 💰 Financial Reservation & Invariants
 
-Six attack vectors are tested in `tests/test_attacks.py` and `tests/test_backend_hardening.py`. All fail closed with zero side-effects.
+All monetary arithmetic uses integer paise.
 
-| Attack | Response | HTTP Status |
-|---|---|---|
-| Over-budget spend attempt | `POLICY_SPEND_CAP_EXCEEDED`, zero paise reserved, no mandate created | 403 |
-| Prompt injection with fake SKU | `CATALOG_SKU_NOT_FOUND`, cart never signed, LLM proposal rejected | 404 |
-| MITM cart tampering | `POLICY_CART_SIGNATURE_INVALID` or `POLICY_CART_HASH_MISMATCH`, `POLICY_REJECTED` ledger entry | 409 |
-| Unauthorized merchant in cart | `POLICY_MERCHANT_NOT_ALLOWED`, mandate authorization aborted | 403 |
-| Webhook double-capture replay | `deduplicated: true`, second webhook silently absorbed, no double-credit | 200 |
-| Cross-merchant signature forgery | Merchant B's key rejects Merchant A's signed cart, quote fails gate 3 | 409 |
+The authoritative `IntentRegistry` balance model is:
 
-Every rejection produces a `POLICY_REJECTED` ledger entry recording the exact breach context (amount attempted, cap in force, merchant ID, reason code). The ledger is mathematically tamper-evident.
+```text
+SPEND CAP = CAPTURED + RESERVED + AVAILABLE
 
----
-
-## Human-in-the-Loop (HITL) Escalation
-
-When a proposed basket exceeds the initial spend cap, the agent halts and presents a structured approval request. On approval, the engine performs **JIT revalidation** — it re-fetches merchant quotes at execution time to confirm prices and stock have not changed since authorization.
-
-If a quote has expired during HITL review, the engine automatically re-quotes from the same merchant for the same SKUs (never substituting alternatives) and validates the fresh quote through the full 7-gate pipeline before proceeding.
-
----
-
-## Partial Completion
-
-When a multi-merchant plan has one leg captured and another fail (e.g., stockout at execution time), the system reaches `PARTIAL_COMPLETE`:
-
-- The captured leg stays captured. It is never rolled back.
-- The failed leg's reservation is released back to the available budget.
-- A `POLICY_REJECTED` entry records the failure with the exact leg context.
-- The aggregate `PurchasePlan` status reflects the partial state.
-
-Zero reconciliation debt is possible. The 6-field invariant always holds:
-
-```
-Total Cap = Captured + Released + Remaining Headroom
+AVAILABLE = SPEND CAP - RESERVED - CAPTURED
 ```
 
+Before gateway execution, the aggregate PurchasePlan exposure is reserved. After execution, captured funds remain captured and failed-leg reservations are released.
+
+For a partial plan, the observable accounting is:
+
+```text
+Authorized Plan
+      ├── Captured amount
+      └── Released amount
+
+IntentRegistry
+      ├── Captured
+      ├── Remaining reserved
+      └── Available
+```
+
+This distinction matters because **reserved exposure** and **captured money** are not the same state.
+
 ---
 
-## Audit Ledger
+## ⚡ Just-In-Time Revalidation
 
-`app/ledger.py` maintains an append-only SHA-256 backward hash chain. Each entry contains:
-- `entry_type` — the lifecycle event (INTENT_REGISTERED, CART_SIGNED, MANDATE_ISSUED, PAYMENT_CAPTURED, POLICY_REJECTED, etc.)
-- `actor` — the system component that generated the entry
-- `payload` — canonical JSON of the event context
+Execution-time freshness is intentionally separate from initial planning.
+
+For each leg, the M8 execution engine can revalidate:
+
+- exact originally authorized SKU(s),
+- merchant identity,
+- category allowlist,
+- merchant signature,
+- cart hash,
+- quote TTL,
+- price against the authorized amount,
+- live stock.
+
+A fresh quote that differs from the authorized amount requires re-authorization rather than silently charging a new price. An unavailable originally authorized SKU fails closed rather than substituting an arbitrary product.
+
+---
+
+## 🧯 Partial Completion
+
+Independent merchant rails deliberately do not pretend to be one atomic payment.
+
+Example:
+
+```text
+PurchasePlan
+   │
+   ├── Leg A → PAYMENT_CAPTURED   ₹X
+   │
+   └── Leg B → RELEASED           ₹Y
+                         │
+                         └── reservation returned
+
+Plan → PARTIAL_COMPLETE
+```
+
+The successful leg is never rolled back because another merchant failed. The failed leg's reserved amount is released through the financial control plane, and the aggregate plan records the partial outcome.
+
+This models a real commerce property: once a merchant has fulfilled one independently paid item, the system cannot truthfully pretend that item was never purchased merely because another merchant became unavailable.
+
+---
+
+## 🛡 Adversarial Threat Bench
+
+The Control Tower exposes six adversarial scenarios:
+
+| Attack                                 | Expected result                          |
+| -------------------------------------- | ---------------------------------------- |
+| Over-budget runaway spend              | Blocked by policy / spend cap            |
+| Prompt injection / fake SKU            | Rejected by catalog/identity boundary    |
+| MITM cart tampering                    | Signature/hash verification fails        |
+| Webhook replay                         | Duplicate event is absorbed idempotently |
+| Cross-merchant key confusion / forgery | Wrong merchant signature fails           |
+| Stale quote / TTL replay               | Expired quote rejected                   |
+
+The important property is not merely that an error is returned. Each attack is designed around the same control plane used by legitimate transactions, so the security boundary is exercised against adversarial input rather than demonstrated only by prose.
+
+---
+
+## 🔔 Razorpay Webhooks & Idempotency
+
+Razorpay webhook processing is treated as an external, asynchronous input to the mandate state machine.
+
+```text
+Razorpay Webhook
+      ↓
+Raw-body HMAC verification
+      ↓
+Event identity / deduplication
+      ↓
+Mandate state validation
+      ↓
+Serialized financial accounting
+      ↓
+Audit ledger append
+```
+
+The runtime webhook model maintains a uniqueness boundary around Razorpay event identity and event type. Razorpay documents duplicate webhook delivery and the need for idempotent handling.
+
+For customer-facing production deployments, the webhook endpoint should be public HTTPS and the webhook secret must remain private. Test-mode webhook traffic can be used to validate the integration before live mode.
+
+---
+
+## 📜 Audit Ledger
+
+`app/ledger.py` maintains an append-only backward SHA-256 hash chain. Each entry contains:
+
+- `entry_type` — lifecycle event type
+- `actor` — component that emitted the event
+- `payload` — structured event context
 - `payload_hash` — SHA-256 of the canonical payload
-- `prev_hash` — the hash of the immediately preceding entry
-- `entry_hash` — SHA-256 of `prev_hash + payload_hash + created_at_iso`
+- `prev_hash` — immediately preceding entry hash
+- `entry_hash` — hash linking the current entry to its predecessor
 
-`verify_chain(db)` re-derives every hash from genesis to head. If any entry has been mutated, deleted, or reordered, the function returns `(False, broken_entry_id)` with the exact position of the break.
+`verify_chain(db)` re-derives the chain from genesis to head and identifies the location of a break if the chain is invalid.
 
-PostgreSQL deployments use `pg_advisory_xact_lock(1)` to serialize concurrent appends without table locks. SQLite uses a process-level `threading.RLock`.
+PostgreSQL deployments serialize ledger appends with transaction-scoped advisory locking; SQLite uses a process-level lock for local development.
+
+The Control Tower can display audit events associated with a transaction run, making the ledger observable rather than merely stored.
 
 ---
 
-## Test Suite
+## 🖥 Guided Transaction Journey
 
-**290 tests passing. 6 skipped (concurrency tests excluded on SQLite). 0 failures.**
+The Guided Transaction Journey is the visual debugger / narrator for one backend execution.
 
+```text
+01  HUMAN INTENT
+    ↓
+02  AI DELIBERATION
+    ↓
+03  INTENT BOUNDARY
+    ↓
+04  PURCHASE PLAN
+    ↓
+05  RESERVATION
+    ↓
+06  JIT REVALIDATION
+    ↓
+07  INDEPENDENT EXECUTION
+    ↓
+08  SETTLEMENT
+    ↓
+09  AUDIT PROOF
 ```
-tests/test_attacks.py              8 tests   — 6 adversarial attack vectors + chain integrity
-tests/test_backend_hardening.py   12 tests   — Injection, replay, boundary conditions
-tests/test_basket_planner.py      14 tests   — Multi-merchant allocation correctness
-tests/test_crypto.py              14 tests   — ES256 sign/verify, hash computation, JWT lifecycle
-tests/test_integration.py         11 tests   — End-to-end journey: intent → mandate → capture
-tests/test_ledger.py               6 tests   — Append, verify, tamper detection
-tests/test_ledger_integrity.py     7 tests   — Chain hash correctness, concurrent appends
-tests/test_mandate_fsm.py         58 tests   — Every legal and illegal state transition
-tests/test_mixed_merchant_hitl_m8.py  19 tests — HITL + JIT revalidation + partial completion
-tests/test_multi_merchant_discovery.py  17 tests — Quote routing, 7-gate verification
-tests/test_policy.py              11 tests   — Spend cap, category, merchant, replay
-tests/test_purchase_plan_m7.py    18 tests   — Purchase plan lifecycle
-tests/test_quote_router.py        22 tests   — Router gate-by-gate verification
-tests/test_merchant_keys.py       25 tests   — Per-merchant key resolution
-```
 
-Run the full suite:
+A completed run should expose authoritative values rather than scenario-derived placeholders:
+
+- intent / plan / mandate identifiers,
+- merchant and SKU information,
+- authorization amounts,
+- pre- and post-execution reservation balances,
+- JIT verdicts,
+- Razorpay order IDs,
+- capture/release outcomes,
+- aggregate PurchasePlan status,
+- run-scoped ledger events and chain verification.
+
+The journey supports controlled **All Success** and **Leg 2 Stock Exhaustion** scenarios so a judge can observe the difference between `COMPLETE` and `PARTIAL_COMPLETE` without changing the core execution semantics.
+
+---
+
+## 🧪 Test Suite
+
+The repository contains unit, integration, adversarial, concurrency, planner, policy, PurchasePlan, JIT/HITL, ledger, and cryptographic tests.
+
+Run the current suite with:
+
 ```bash
-uv run pytest
+uv run pytest -q
+```
+
+The test suite is the source of truth for the current test count; avoid keeping a manually maintained total in this README after adding new tests.
+
+Useful test areas include:
+
+```text
+tests/test_attacks.py
+tests/test_backend_hardening.py
+tests/test_basket_planner.py
+tests/test_crypto.py
+tests/test_integration.py
+tests/test_ledger.py
+tests/test_ledger_integrity.py
+tests/test_mandate_fsm.py
+tests/test_mixed_merchant_hitl_m8.py
+tests/test_multi_merchant_discovery.py
+tests/test_policy.py
+tests/test_purchase_plan_m7.py
+tests/test_quote_router.py
+tests/test_merchant_keys.py
 ```
 
 ---
 
-## Stack
+## 🚀 Deployment
 
-| Layer | Technology |
-|---|---|
-| **Backend** | Python 3.12, FastAPI, SQLAlchemy 2.0, Alembic |
-| **AI Agent** | LangGraph, Gemini API (`gemini-3.5-flash-lite`) |
-| **Cryptography** | `cryptography` library (NIST P-256 / ES256), PyJWT |
-| **Payment Gateway** | Razorpay Orders API (test mode), HMAC-SHA256 webhook verification |
-| **Database** | SQLite (development), PostgreSQL 16 (production via Docker) |
-| **Frontend** | React 18, Vite, Tailwind CSS |
-| **Package Manager** | `uv` |
+For a judge-accessible deployment, use a public frontend, public HTTPS backend, managed PostgreSQL, and Razorpay Test Mode.
+
+A typical layout is:
+
+```text
+Vercel / Static Host
+        │
+        ▼
+React Control Tower
+        │
+        ▼
+Public HTTPS FastAPI Backend
+        │
+        ├── Managed PostgreSQL
+        ├── Gemini API
+        └── Razorpay Test Mode
+```
+
+Deployment requirements:
+
+- Set `VITE_API_BASE` to the public backend URL rather than `localhost`.
+- Restrict backend CORS to the deployed frontend origin(s).
+- Inject PostgreSQL connection strings through platform secrets.
+- Inject Gemini and Razorpay credentials through platform secrets.
+- Persist application cryptographic keys securely; do not rely on development-time auto-generation in production.
+- Configure a public HTTPS Razorpay webhook endpoint in Test Mode.
+
+Razorpay's webhook documentation provides a Test Mode workflow for validating webhook integrations and requires the webhook secret used to verify signatures to remain private. See [Validate and Test Webhooks](https://razorpay.com/docs/webhooks/validate-test/).
+
+### Environment variables
+
+| Variable              | Purpose                                  | Required                              |
+| --------------------- | ---------------------------------------- | ------------------------------------- |
+| `GEMINI_API_KEY`      | Gemini API key for agent deliberation    | For AI path                           |
+| `RAZORPAY_KEY_ID`     | Razorpay Test Mode key ID                | For Razorpay integration              |
+| `RAZORPAY_KEY_SECRET` | Razorpay Test Mode secret                | For Razorpay integration              |
+| `DATABASE_URL`        | SQLAlchemy database URL                  | No; SQLite is the development default |
+| `APP_ENV`             | `development` or `production`            | No                                    |
+| `VITE_API_BASE`       | Public FastAPI base URL for the frontend | Required for deployed frontend        |
 
 ---
 
-## Setup
+## ⚙️ Local Setup
 
 ### Prerequisites
+
 - Python 3.12+
 - Node.js 18+
 - `uv` package manager
@@ -280,21 +586,19 @@ uv run pytest
 ### Backend
 
 ```bash
-# Install dependencies
 uv sync
-
-# Copy and configure environment
 cp .env.example .env
-# Set GEMINI_API_KEY and RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET in .env
 
-# Run migrations (SQLite, development)
+# Configure the required development/test secrets in .env.
 uv run alembic upgrade head
-
-# Start the API server
 uv run uvicorn app.main:app --port 8000 --reload
 ```
 
-The API documentation is available at `http://localhost:8000/docs`.
+API documentation:
+
+```text
+http://localhost:8000/docs
+```
 
 ### Frontend
 
@@ -304,95 +608,115 @@ npm install
 npm run dev
 ```
 
-The Control Tower UI is available at `http://localhost:5173`.
-
-### PostgreSQL (Optional)
+### PostgreSQL development environment
 
 ```bash
 docker compose up -d
-# Update DATABASE_URL in .env to point to the Postgres instance
 uv run alembic upgrade head
 ```
 
-### Environment Variables
+---
 
-| Variable | Description | Required |
-|---|---|---|
-| `GEMINI_API_KEY` | Gemini API key for LLM deliberation | Yes (for agent) |
-| `RAZORPAY_KEY_ID` | Razorpay test mode key ID | Yes |
-| `RAZORPAY_KEY_SECRET` | Razorpay test mode secret | Yes |
-| `DATABASE_URL` | SQLAlchemy connection string | No (defaults to SQLite) |
-| `APP_ENV` | `development` or `production` | No (defaults to development) |
+## 🔌 API Reference
+
+Core routes currently exposed by the application include:
+
+| Method | Path                                     | Description                                        |
+| ------ | ---------------------------------------- | -------------------------------------------------- |
+| `POST` | `/api/v1/intent/authorize`               | Authorize/register a `UserIntentCredential`        |
+| `GET`  | `/api/v1/checkout/catalog.json`          | Read merchant catalog data used by checkout flows  |
+| `POST` | `/api/v1/checkout/checkout/sign-cart`    | Create a merchant-signed cart                      |
+| `POST` | `/api/v1/mandate/authorize`              | Authorize a `PaymentMandate` against a signed cart |
+| `POST` | `/api/v1/mandate/reconcile/{mandate_id}` | Reconcile a mandate stuck during order creation    |
+| `POST` | `/api/v1/webhooks/razorpay`              | Receive and verify Razorpay webhooks               |
+| `GET`  | `/api/v1/ledger/entries`                 | Inspect audit ledger entries                       |
+| `GET`  | `/api/v1/ledger/verify-chain`            | Verify the full SHA-256 audit chain                |
+| `POST` | `/api/v1/agent/deliberate`               | Run the agent deliberation / shopping path         |
+| `POST` | `/api/v1/agent/escalate-and-pay`         | Escalated HITL authorization flow                  |
+| `POST` | `/api/v1/demo/multi-leg-journey`         | Controlled multi-merchant Guided Journey execution |
+| `POST` | `/api/v1/demo/attack/{attack_id}`        | Run one adversarial attack scenario                |
+| `POST` | `/api/v1/demo/simulate-capture`          | Controlled payment-capture webhook simulation      |
+| `GET`  | `/healthz`                               | Health check                                       |
+
+For complete request/response schemas, use the FastAPI OpenAPI documentation exposed by the running backend.
 
 ---
 
-## API Reference
+## ⚠️ Known Limitations & Honest Demo Boundaries
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/v1/intent` | Register a `UserIntentCredential` |
-| `POST` | `/api/v1/checkout` | Authorize a `PaymentMandate` against a signed cart |
-| `POST` | `/api/v1/mandates/{id}/execute` | Execute a mandate leg (create Razorpay order) |
-| `POST` | `/api/v1/webhooks/razorpay` | Receive and verify Razorpay payment webhooks |
-| `GET`  | `/api/v1/ledger/verify` | Forensically verify the entire audit chain |
-| `POST` | `/api/v1/agent/run` | Run the full LangGraph agent journey |
-| `POST` | `/api/v1/demo/multi-leg-journey` | Orchestrated demo: intent → multi-merchant → capture |
-| `GET`  | `/healthz` | Health check |
+This project is intentionally explicit about what is and is not production-complete:
 
----
+- Razorpay integration is designed for Test Mode in the hackathon submission.
+- Some Control Tower demo flows use a controlled mock Razorpay client or simulated webhook to demonstrate the downstream state machine safely.
+- The merchant inventory is a controlled application catalog rather than a production merchant-network integration.
+- The current greedy mixed-basket planner assumes no delivery fees, minimum-order constraints, volume pricing, or cross-item pricing interactions; the repository documents when a more complex optimizer would be required.
+- SQLite is intended for development; PostgreSQL is the concurrency-oriented deployment database.
+- Production deployment requires secure persistence/injection of application cryptographic keys and restrictive CORS configuration.
 
-## Design Decisions
-
-**Why integer paise everywhere?** Floating-point arithmetic on money is undefined behavior. `0.1 + 0.2 ≠ 0.3` in IEEE 754. Every amount in Mandate Mesh is an integer in paise. Division never happens. Rounding never happens.
-
-**Why one cryptographic module?** ADR-002 mandates that `app/crypto.py` is the only file that may import `cryptography` or `jwt` primitives. This makes the cryptographic boundary auditable in a single place and prevents scattered, inconsistent signature logic across the codebase.
-
-**Why a formal FSM for mandate states?** Direct assignment to `record.status` is forbidden. The FSM in `app/mandate_fsm.py` makes illegal state transitions a compile-time error pattern rather than a silent data corruption. Every allowed and forbidden transition is explicitly defined and tested.
-
-**Why `pg_advisory_xact_lock` for the ledger?** The hash chain requires strictly sequential appends. Row-level locks create deadlock risk under concurrent writes. PostgreSQL advisory locks serialize all appends within a transaction without locking the table, giving linear chain integrity without sacrificing concurrent read performance.
-
-**Why greedy per-product basket allocation?** Under the current commerce model (no delivery fees, no minimum order values, no volume tiers), greedy independent per-product allocation is mathematically provably optimal. The code explicitly documents the conditions under which this ceases to be true and what the correct replacement algorithm would be (MILP / branch-and-bound).
+These limitations do not change the central control-plane thesis: the AI proposal is not itself authorized to move money.
 
 ---
 
-## Project Structure
+## 🧠 Design Decisions
 
-```
+**Why integer paise everywhere?** All financial state is represented as integer paise, eliminating floating-point rounding from authorization and reconciliation logic.
+
+**Why one cryptographic module?** Cryptographic primitives are centralized so signature and JWT handling remain auditable and consistent across trust boundaries.
+
+**Why a formal FSM?** `MandateRecord` transitions are explicitly constrained; illegal state changes are rejected rather than silently mutating financial state.
+
+**Why a PurchasePlan?** A user request can require multiple independent merchant payments. PurchasePlan separates aggregate authorization from per-leg execution while preserving a single financial boundary.
+
+**Why aggregate reservation before gateway execution?** The system reserves the authorized exposure before calling an external payment gateway so concurrent agents cannot oversubscribe the same intent budget.
+
+**Why JIT revalidation?** Agent deliberation and payment execution happen at different times. Inventory and quotes can change during that interval, so the execution rail revalidates exact authorized products immediately before order creation.
+
+**Why partial completion instead of forced rollback?** Independent merchant payments are not one atomic external transaction. Preserving already-captured payments while releasing failed-leg reservations reflects the actual physical and financial state.
+
+**Why the Razorpay boundary?** The payment gateway executes an already-authorized action. Mandate Mesh decides whether an AI-originated proposal is allowed to become that action.
+
+---
+
+## 📁 Project Structure
+
+```text
 mandate-mesh/
 ├── app/
-│   ├── agent.py              # LangGraph buyer agent, Gemini LLM integration
-│   ├── basket_planner.py     # Deterministic mixed-basket allocation (M6)
-│   ├── crypto.py             # Sole cryptographic boundary (ADR-002)
-│   ├── errors.py             # Structured PolicyViolation exception hierarchy
-│   ├── hitl_execution.py     # HITL + JIT revalidation + partial completion (M8)
-│   ├── ledger.py             # Append-only SHA-256 hash-chained audit log
-│   ├── main.py               # FastAPI entrypoint, lifespan, route registration
-│   ├── mandate_fsm.py        # Formal mandate state machine (ADR-005)
-│   ├── merchant.py           # Merchant catalog seeding and cart signing
-│   ├── merchant_keys.py      # Per-merchant ES256 key resolution
+│   ├── agent.py              # LangGraph buyer agent, Gemini integration
+│   ├── basket_planner.py     # Deterministic mixed-basket allocation
+│   ├── crypto.py             # Central cryptographic boundary
+│   ├── errors.py             # Structured policy exception hierarchy
+│   ├── hitl_execution.py     # HITL + JIT + partial completion engine
+│   ├── ledger.py             # Append-only SHA-256 audit ledger
+│   ├── main.py               # FastAPI application entrypoint
+│   ├── mandate_fsm.py        # Formal mandate state machine
+│   ├── merchant.py            # Merchant catalog and cart signing
+│   ├── merchant_keys.py      # Per-merchant key resolution
 │   ├── models.py             # SQLAlchemy ORM models
-│   ├── policy.py             # Deterministic policy rail, atomic reservation
-│   ├── quote_router.py       # 7-gate multi-merchant quote verification (M3)
-│   ├── razorpay_client.py    # Razorpay Orders API client (test mode)
-│   ├── reconcile.py          # Self-healing reconciliation for stuck orders
-│   ├── schemas.py            # Pydantic models: Intent, Cart, Mandate, Receipt
-│   ├── schemas_routing.py    # Routing-specific Pydantic models
-│   └── webhooks.py           # HMAC-verified Razorpay webhook processor
-├── tests/                    # 290 passing tests across 24 test files
-├── frontend/                 # React + Vite Control Tower UI
+│   ├── policy.py             # Deterministic policy rail + reservation
+│   ├── quote_router.py       # 7-gate quote verification
+│   ├── razorpay_client.py    # Razorpay integration / mock adapter
+│   ├── reconcile.py          # Stuck-order reconciliation
+│   ├── schemas.py            # Pydantic domain schemas
+│   ├── schemas_routing.py    # Routing-specific schemas
+│   └── webhooks.py           # Razorpay webhook processor
+├── tests/                    # Unit, integration and adversarial tests
+├── frontend/                 # React 19 + Vite Control Tower UI
 ├── alembic/                  # Database migrations
-├── docker-compose.yml        # PostgreSQL 16 for production
+├── docker-compose.yml        # PostgreSQL development environment
 └── pyproject.toml
 ```
 
 ---
 
-## Core Invariant
+## 🧱 Core Invariant
 
 > **The LLM proposes; deterministic Python disposes. Zero unauthorized rupees move.**
 
-This is not a marketing claim. It is enforced structurally: the LangGraph agent's tool schema for `propose_cart` accepts only `{items: list[{sku, quantity}]}`. The schema contains no `price`, `amount`, `total`, or `discount` parameters. The agent is architecturally incapable of proposing a price. Prices are retrieved exclusively from the signed merchant catalog at cart-signing time.
+This is enforced structurally. The agent proposal interface is intentionally narrower than the financial policy interface: the model can propose item identities and quantities, but authoritative prices, merchant identity, policy constraints, spend limits, reservation state, and payment execution are resolved outside the LLM.
+
+The core security boundary therefore does not depend on a single prompt being perfectly followed. It depends on what the model is **architecturally unable to authorize**.
 
 ---
 
-Built for the **Razorpay Buildathon** · Track 01: Agentic Commerce Guardrails
+Built for the **Razorpay Buildathon · Track 01: AI Growth & Agentic Commerce / Agentic Commerce Guardrails**.

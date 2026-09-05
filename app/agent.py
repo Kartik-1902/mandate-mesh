@@ -375,9 +375,9 @@ def parse_goal_node(state: BuyerAgentState) -> dict[str, Any]:
     meaningful_words = [w for w in words if len(w) > 2 and not w.isdigit() and w.lower() not in stop_words]
     parsed["keywords"] = meaningful_words
 
-    has_bakery = any(k.lower() in ["cake", "pastry", "bakery", "bread"] for k in words)
-    has_gifting = any(k.lower() in ["card", "gift", "candle", "greeting"] for k in words)
-    has_electronics = any(k.lower() in ["headphones", "tech", "electronics", "power"] for k in words)
+    has_bakery = any(any(k.lower().startswith(root) for root in ["cake", "pastr", "baker", "bread"]) for k in words)
+    has_gifting = any(any(k.lower().startswith(root) for root in ["card", "gift", "candle", "greet"]) for k in words)
+    has_electronics = any(any(k.lower().startswith(root) for root in ["headphone", "tech", "electron", "power"]) for k in words)
 
     matched_categories = sum([has_bakery, has_gifting, has_electronics])
 

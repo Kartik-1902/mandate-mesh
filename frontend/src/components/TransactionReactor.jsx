@@ -26,46 +26,48 @@ import {
 } from 'lucide-react';
 import { runMultiLegJourney } from '../services/api';
 
+/* ──────────── Helpers ──────────── */
+function formatPaise(v) {
+  if (v == null || v === undefined) return '—';
+  return `₹${(v / 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function pct(part, whole) {
+  if (!whole) return '0';
+  return ((part / whole) * 100).toFixed(1);
+}
+
 export default function TransactionReactor({ onSwitchToAuditLedger, onLedgerChange }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [journeyData, setJourneyData] = useState(null);
-  const [simulateLeg2Failure, setSimulateLeg2Failure] = useState(true);
+  const [goal, setGoal] = useState('I need a birthday cake and candles under ₹1500');
+  const [spendCap, setSpendCap] = useState(1500);
+  const [scenario, setScenario] = useState('partial_failure');
   const [expandedDrawers, setExpandedDrawers] = useState({});
   const [copiedKey, setCopiedKey] = useState(null);
   const [isAutoScrolling, setIsAutoScrolling] = useState(false);
-
   const autoScrollTimerRef = useRef(null);
 
-  // Load genuine backend multi-leg orchestration
-  const loadData = async (simulateFailure = simulateLeg2Failure) => {
+  /* NO mount-time auto-execution — page opens idle */
+
+  const loadData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await runMultiLegJourney(
-        'I need a birthday cake and candles under Rs. 1500',
-        150000,
-        simulateFailure
-      );
+      const data = await runMultiLegJourney(goal, spendCap * 100, scenario);
       setJourneyData(data);
       if (onLedgerChange) onLedgerChange();
     } catch (err) {
-      console.error('Failed to load multi-leg journey data:', err);
+      console.error('Journey execution failed:', err);
       setError(err.message || 'Failed to connect to backend engine.');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadData(simulateLeg2Failure);
-  }, []);
-
-  const toggleDrawer = (chapterKey) => {
-    setExpandedDrawers((prev) => ({
-      ...prev,
-      [chapterKey]: !prev[chapterKey],
-    }));
+  const toggleDrawer = (key) => {
+    setExpandedDrawers((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const handleCopy = (text, key) => {
@@ -75,21 +77,13 @@ export default function TransactionReactor({ onSwitchToAuditLedger, onLedgerChan
     setTimeout(() => setCopiedKey(null), 1800);
   };
 
-  const handleToggleFailure = () => {
-    const next = !simulateLeg2Failure;
-    setSimulateLeg2Failure(next);
-    loadData(next);
+  const scrollToChapter = (id) => {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const scrollToChapter = (chapterId) => {
-    const el = document.getElementById(chapterId);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  };
-
-  // Cinematic Auto-Trace Playback
   const handleToggleAutoScroll = () => {
+    if (!journeyData) return;
     if (isAutoScrolling) {
       setIsAutoScrolling(false);
       if (autoScrollTimerRef.current) clearInterval(autoScrollTimerRef.current);
@@ -97,7 +91,6 @@ export default function TransactionReactor({ onSwitchToAuditLedger, onLedgerChan
       setIsAutoScrolling(true);
       let step = 1;
       scrollToChapter('chapter-01');
-
       autoScrollTimerRef.current = setInterval(() => {
         step += 1;
         if (step > 9) {
@@ -116,1014 +109,433 @@ export default function TransactionReactor({ onSwitchToAuditLedger, onLedgerChan
     };
   }, []);
 
-  const stages = journeyData?.stages || {};
-  const s1 = stages.stage1_user_intent || {};
-  const s2 = stages.stage2_ai_deliberation || {};
-  const s3 = stages.stage3_intent_boundary || {};
-  const s4 = stages.stage4_purchase_plan || {};
-  const s5 = stages.stage5_reservation || {};
-  const s6 = stages.stage6_jit_revalidation || {};
-  const s7 = stages.stage7_independent_execution || {};
-  const s8 = stages.stage8_partial_outcome || {};
-  const s9 = stages.stage9_audit_proof || {};
+  /* ═════════════ IDLE STATE ═════════════ */
+  if (!journeyData && !loading && !error) {
+    return (
+      <div className="stream-container">
+        <div className="chapter-node" style={{ padding: '40px 20px' }}>
+          <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+            <div style={{ fontFamily: 'var(--font-macro)', fontSize: '1.5rem', fontWeight: 900, letterSpacing: '0.15em', color: 'var(--text-phosphor)', marginBottom: '8px' }}>
+              GUIDED TRANSACTION JOURNEY
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--text-muted)', maxWidth: '600px', margin: '0 auto', lineHeight: 1.6 }}>
+              No live journey executed yet. Configure parameters and click RUN to execute a genuine multi-merchant transaction through the real M3–M8 engine.
+            </div>
+          </div>
 
-  const candidates = s2.candidate_merchants_evaluated || [];
-  const legs = s4.legs || [];
-  const leg1Jit = s6.leg1_cakehouse || {};
-  const leg2Jit = s6.leg2_sweetdelight || {};
-  const leg1Exec = s7.leg1_result || {};
-  const leg2Exec = s7.leg2_result || {};
+          <div style={{ maxWidth: '520px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Goal */}
+            <div>
+              <label style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)', letterSpacing: '0.1em', display: 'block', marginBottom: '5px' }}>NATURAL LANGUAGE GOAL</label>
+              <input
+                type="text" value={goal} onChange={(e) => setGoal(e.target.value)}
+                style={{ width: '100%', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', padding: '10px 12px', background: 'var(--bg-recessed)', border: '1px solid var(--border-line)', color: 'var(--text-phosphor)', outline: 'none' }}
+              />
+            </div>
+
+            {/* Spend cap */}
+            <div>
+              <label style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)', letterSpacing: '0.1em', display: 'block', marginBottom: '5px' }}>SPEND CAP (₹)</label>
+              <input
+                type="number" value={spendCap} onChange={(e) => setSpendCap(Number(e.target.value))}
+                style={{ width: '160px', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', padding: '10px 12px', background: 'var(--bg-recessed)', border: '1px solid var(--border-line)', color: 'var(--text-phosphor)', outline: 'none' }}
+              />
+            </div>
+
+            {/* Scenario */}
+            <div>
+              <label style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)', letterSpacing: '0.1em', display: 'block', marginBottom: '5px' }}>SCENARIO</label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => setScenario('all_success')} className={`btn ${scenario === 'all_success' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '0.68rem', padding: '8px 14px', flex: 1 }}>
+                  <CheckCircle2 size={12} /><span>ALL SUCCESS</span>
+                </button>
+                <button onClick={() => setScenario('partial_failure')} className={`btn ${scenario === 'partial_failure' ? 'btn-danger' : 'btn-secondary'}`}
+                  style={{ fontSize: '0.68rem', padding: '8px 14px', flex: 1 }}>
+                  <AlertTriangle size={12} /><span>LEG 2 STOCK EXHAUSTION</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Run button */}
+            <button onClick={loadData} className="btn btn-primary" style={{ marginTop: '12px', padding: '14px', fontSize: '0.82rem', fontWeight: 900, letterSpacing: '0.1em' }}>
+              <Zap size={16} /><span>RUN LIVE JOURNEY</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ═════════════ LOADING STATE ═════════════ */
+  if (loading) {
+    return (
+      <div className="stream-container">
+        <div className="chapter-node" style={{ textAlign: 'center', padding: '80px 20px' }}>
+          <RefreshCw size={28} style={{ color: 'var(--accent-terminal)', animation: 'spin 1s linear infinite', marginBottom: '16px' }} />
+          <div style={{ fontFamily: 'var(--font-macro)', fontSize: '1rem', fontWeight: 800, color: 'var(--text-phosphor)', letterSpacing: '0.12em', marginBottom: '8px' }}>
+            EXECUTING LIVE JOURNEY
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+            Running real AI deliberation → basket planning → JIT revalidation → webhook capture…
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ═════════════ ERROR STATE ═════════════ */
+  if (error && !journeyData) {
+    return (
+      <div className="stream-container">
+        <div className="chapter-node" style={{ padding: '40px 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+            <XCircle size={20} style={{ color: 'var(--accent-red)' }} />
+            <span style={{ fontFamily: 'var(--font-macro)', fontSize: '0.9rem', fontWeight: 800, color: 'var(--accent-red)', letterSpacing: '0.1em' }}>ENGINE ERROR</span>
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-label)', background: 'var(--bg-recessed)', padding: '14px', border: '1px solid var(--border-line)', marginBottom: '16px', whiteSpace: 'pre-wrap' }}>{error}</div>
+          <button onClick={loadData} className="btn btn-secondary" style={{ fontSize: '0.72rem' }}>
+            <RefreshCw size={12} /><span>RETRY</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* ═════════════ ACTIVE STATE — journey completed ═════════════ */
+  const d = journeyData;
+  if (!d) return null;
+
+  const legs = d.legs || [];
+  const planLegs = d.plan?.legs || [];
+  const events = d.audit?.events || [];
+  const preExec = d.reservation?.pre_execution || {};
+  const postExec = d.reservation?.post_execution || {};
+
+  const reservedPct = pct(preExec.reserved_paise, preExec.spend_cap_paise);
+  const capturedPct = pct(d.settlement?.captured_paise, d.settlement?.authorized_paise);
 
   return (
     <div className="stream-container">
-      {/* =========================================================================
-          STICKY TRANSACTION HUD (PINS WHILE SCROLLING)
-          Displays live aggregate financial reconciliation across the journey
-          ========================================================================= */}
+
+      {/* ── STICKY HUD ── */}
       <div className="sticky-narrative-hud">
-        {/* Left: Prompt & Spend Cap */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div
-            style={{
-              background: 'var(--accent-terminal)',
-              color: '#052414',
-              padding: '3px 7px',
-              fontFamily: 'var(--font-mono)',
-              fontWeight: 900,
-              fontSize: '0.68rem',
-              letterSpacing: '0.05em',
-            }}
-          >
-            ACTIVE TRANSACTION
+          <div style={{ background: 'var(--accent-terminal)', color: '#052414', padding: '3px 7px', fontFamily: 'var(--font-mono)', fontWeight: 900, fontSize: '0.65rem', letterSpacing: '0.05em' }}>
+            RUN {d.run_id}
           </div>
-          <span
-            style={{
-              fontFamily: 'var(--font-macro)',
-              fontWeight: 700,
-              fontSize: '0.88rem',
-              color: 'var(--text-phosphor)',
-            }}
-          >
-            "I need a birthday cake and candles under ₹1,500"
+          <span style={{ fontFamily: 'var(--font-macro)', fontWeight: 700, fontSize: '0.82rem', color: 'var(--text-phosphor)' }}>
+            CAP {formatPaise(d.intent?.spend_cap_paise)}
           </span>
         </div>
 
-        {/* Center: Live Financial Balance Ticker */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontFamily: 'var(--font-mono)',
-            fontSize: '0.7rem',
-            background: 'var(--bg-recessed)',
-            border: '1px solid var(--border-line)',
-            padding: '4px 10px',
-          }}
-        >
-          <span style={{ color: 'var(--text-muted)' }}>SPEND CAP:</span>
-          <span style={{ color: 'var(--text-phosphor)', fontWeight: 700 }}>₹1,500.00</span>
-          <span style={{ color: 'var(--border-line)' }}>|</span>
-
-          <span style={{ color: 'var(--text-muted)' }}>RESERVED:</span>
-          <span style={{ color: 'var(--accent-amber)', fontWeight: 700 }}>₹1,120.00</span>
-          <span style={{ color: 'var(--border-line)' }}>|</span>
-
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--font-mono)', fontSize: '0.66rem', background: 'var(--bg-recessed)', border: '1px solid var(--border-line)', padding: '4px 10px' }}>
           <span style={{ color: 'var(--text-muted)' }}>CAPTURED:</span>
-          <span style={{ color: 'var(--accent-terminal)', fontWeight: 700 }}>
-            {simulateLeg2Failure ? '₹940.00' : '₹1,120.00'}
-          </span>
+          <span style={{ color: 'var(--accent-terminal)', fontWeight: 700 }}>{formatPaise(d.settlement?.captured_paise)}</span>
           <span style={{ color: 'var(--border-line)' }}>|</span>
-
-          <span style={{ color: 'var(--text-muted)' }}>UNSPENT / RELEASED:</span>
-          <span style={{ color: 'var(--accent-steel)', fontWeight: 700 }}>
-            {simulateLeg2Failure ? '₹180.00' : '₹0.00'}
+          <span style={{ color: 'var(--text-muted)' }}>RELEASED:</span>
+          <span style={{ color: 'var(--accent-steel)', fontWeight: 700 }}>{formatPaise(d.settlement?.released_paise)}</span>
+          <span style={{ color: 'var(--border-line)' }}>|</span>
+          <span style={{ color: d.settlement?.plan_status === 'COMPLETE' ? 'var(--accent-terminal)' : 'var(--accent-amber)', fontWeight: 700 }}>
+            {d.settlement?.plan_status}
           </span>
         </div>
 
-        {/* Right: Auto-Trace & Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button
-            className={`btn ${isAutoScrolling ? 'btn-danger' : 'btn-primary'}`}
-            onClick={handleToggleAutoScroll}
-            style={{ fontSize: '0.7rem', padding: '4px 10px' }}
-            title="Auto-scroll through the complete transaction trace"
-          >
-            {isAutoScrolling ? (
-              <>
-                <Pause size={11} />
-                <span>PAUSE TRACE</span>
-              </>
-            ) : (
-              <>
-                <Play size={11} />
-                <span>AUTO-PLAY TRACE</span>
-              </>
-            )}
-          </button>
-
-          <button
-            onClick={handleToggleFailure}
-            className="btn btn-secondary"
-            style={{
-              fontSize: '0.68rem',
-              padding: '4px 8px',
-              color: simulateLeg2Failure ? 'var(--accent-red)' : 'var(--text-secondary)',
-              borderColor: simulateLeg2Failure ? 'rgba(208, 59, 59, 0.4)' : 'var(--border-line)',
-            }}
-            title="Toggle simulated Leg 2 stock exhaustion to demonstrate partial completion resilience"
-          >
-            <span>LEG 2 OOS:</span>
-            <strong>{simulateLeg2Failure ? 'ON (PARTIAL)' : 'OFF (100% PASS)'}</strong>
-          </button>
-
-          <button
-            onClick={() => loadData()}
-            disabled={loading}
-            className="btn btn-secondary"
-            style={{ fontSize: '0.68rem', padding: '4px 8px' }}
-            title="Re-execute genuine orchestration on FastAPI backend"
-          >
-            <RefreshCw size={11} className={loading ? 'spin' : ''} />
-            <span>{loading ? 'RUNNING...' : 'RE-RUN'}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* =========================================================================
-          CHAPTER 01: HUMAN ORIGIN // NATURAL LANGUAGE INTENT
-          ========================================================================= */}
-      <div id="chapter-01" className="chapter-node">
-        <ChapterHeader
-          num="01"
-          tag="HUMAN ORIGIN"
-          title="User Intent & Authoritative Spending Cap"
-          badge="ROOT CONSTRAINTS SIGNED"
-          badgeColor="badge-cyan"
-        />
-
-        <GuaranteeCallout
-          invariant="Signed constraints are established outside the LLM before any autonomous planning begins."
-          benefit="An unconstrained AI cannot be hijacked or prompted to exceed the user's hard ₹1,500.00 financial boundary."
-        />
-
-        {/* Visual Content */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: '10px',
-            marginTop: '12px',
-          }}
-        >
-          <DataMetricCard
-            label="HUMAN PROMPT"
-            value="I need a birthday cake and candles under ₹1,500"
-            isText
-          />
-          <DataMetricCard
-            label="MAX SPEND CAP"
-            value="₹1,500.00"
-            subValue="150,000 paise (Hard Ceiling)"
-            accentColor="var(--accent-terminal)"
-          />
-          <DataMetricCard
-            label="MAX HOPS"
-            value="5 Transactions"
-            subValue="Locked in IntentRegistry"
-          />
-          <DataMetricCard
-            label="SIGNATURE STANDARD"
-            value="NIST P-256 ECDSA"
-            subValue="Hardware / Keystore Signed"
-            accentColor="var(--accent-steel)"
-          />
-        </div>
-
-        {/* Expandable Technical Proof */}
-        <EvidenceDrawer
-          isOpen={expandedDrawers['ch1']}
-          onToggle={() => toggleDrawer('ch1')}
-          title="Raw Cryptographic Intent Payload (UserIntentCredential)"
-          data={{
-            intent_id: s1.intent_id || 'intent_demo_01',
-            user_id: 'user_control_tower_01',
-            spend_cap_paise: s1.spend_cap_paise || 150000,
-            currency: 'INR',
-            allowed_categories: ['bakery', 'gifting'],
-            allowed_merchant_ids: ['merchant_cakehouse_01', 'merchant_sweetdelight_02'],
-            nonce: s1.nonce || '0x4f8b9e12a4c6',
-            validity: '1 Hour Window',
-          }}
-          copyKey="raw_intent"
-          copiedKey={copiedKey}
-          onCopy={handleCopy}
-        />
-      </div>
-
-      <ConduitConnector text="DELIBERATION PIPELINE // PROMPT PASSED TO REASONING ENGINE" />
-
-      {/* =========================================================================
-          CHAPTER 02: THE SANDBOX // AGENTIC DELIBERATION & CATALOG PROPOSAL
-          ========================================================================= */}
-      <div id="chapter-02" className="chapter-node">
-        <ChapterHeader
-          num="02"
-          tag="AI REASONING"
-          title="Autonomous Basket Planning & Catalog Discovery"
-          badge="ZERO FINANCIAL AUTHORITY"
-          badgeColor="badge-amber"
-        />
-
-        <GuaranteeCallout
-          invariant="The AI agent proposes multi-merchant item allocations, but possesses 0 private keys, 0 Razorpay tokens, and 0 execution rights."
-          benefit="Even complete prompt injection or model hallucination cannot move money directly. The LLM only proposes — Python cryptographic policy disposes."
-        />
-
-        {/* Candidate Discovery Table */}
-        <div style={{ marginTop: '12px', overflowX: 'auto' }}>
-          <table
-            style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.74rem',
-            }}
-          >
-            <thead>
-              <tr
-                style={{
-                  background: 'var(--bg-surface)',
-                  borderBottom: '1px solid var(--border-line)',
-                  textAlign: 'left',
-                  color: 'var(--text-muted)',
-                }}
-              >
-                <th style={{ padding: '8px 10px' }}>PROPOSED ITEM</th>
-                <th style={{ padding: '8px 10px' }}>MERCHANT</th>
-                <th style={{ padding: '8px 10px' }}>CATEGORY</th>
-                <th style={{ padding: '8px 10px' }}>DISCOVERED QUOTE</th>
-                <th style={{ padding: '8px 10px' }}>STATUS</th>
-              </tr>
-            </thead>
-            <tbody>
-              {candidates.map((c, idx) => (
-                <tr
-                  key={idx}
-                  style={{
-                    borderBottom: '1px solid var(--border-line)',
-                    background: idx % 2 === 0 ? 'transparent' : 'var(--bg-recessed)',
-                  }}
-                >
-                  <td style={{ padding: '8px 10px', fontWeight: 700 }}>{c.item}</td>
-                  <td style={{ padding: '8px 10px', color: 'var(--text-secondary)' }}>
-                    {c.name} ({c.merchant_id})
-                  </td>
-                  <td style={{ padding: '8px 10px' }}>
-                    <span className="badge badge-steel">{idx === 0 ? 'bakery' : 'gifting'}</span>
-                  </td>
-                  <td
-                    style={{
-                      padding: '8px 10px',
-                      color: 'var(--accent-terminal)',
-                      fontWeight: 700,
-                    }}
-                  >
-                    ₹{(c.quote_paise / 100).toFixed(2)}
-                  </td>
-                  <td style={{ padding: '8px 10px' }}>
-                    <span className="badge badge-green">PROPOSED</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '8px 12px',
-            background: 'var(--bg-recessed)',
-            border: '1px solid var(--border-line)',
-            marginTop: '8px',
-            fontFamily: 'var(--font-mono)',
-            fontSize: '0.72rem',
-          }}
-        >
-          <span style={{ color: 'var(--text-muted)' }}>PROPOSED BASKET TOTAL:</span>
-          <span style={{ color: 'var(--accent-terminal)', fontWeight: 700 }}>
-            ₹1,120.00 (WITHIN ₹1,500.00 CAP · ₹380.00 BUFFER REMAINING)
-          </span>
-        </div>
-
-        <EvidenceDrawer
-          isOpen={expandedDrawers['ch2']}
-          onToggle={() => toggleDrawer('ch2')}
-          title="Agent Deliberation Trace & LLM Airgap Assurance"
-          data={{
-            objective: s2.inferred_objective || 'Birthday celebration bundle',
-            items: s2.inferred_items || [],
-            security_boundary: s2.llm_boundary_guarantee,
-            payment_credentials_held: 'NONE (0 Keys)',
-          }}
-          copyKey="raw_deliberation"
-          copiedKey={copiedKey}
-          onCopy={handleCopy}
-        />
-      </div>
-
-      <ConduitConnector text="GATEWAY VALIDATION // SIGNED INTENT VERIFICATION" />
-
-      {/* =========================================================================
-          CHAPTER 03: THE VAULT GATE // PRE-AGENT INTENT BOUNDARY
-          ========================================================================= */}
-      <div id="chapter-03" className="chapter-node">
-        <ChapterHeader
-          num="03"
-          tag="POLICY GATEWAY"
-          title="Pre-Agent Cryptographic Intent Boundary Seal"
-          badge="ECDSA SIGNATURE VERIFIED"
-          badgeColor="badge-green"
-        />
-
-        <GuaranteeCallout
-          invariant="The UserIntentCredential is verified by Mandate Mesh before any plan is authorized, confirming user identity, spend limit, and anti-replay nonce."
-          benefit="Guarantees non-repudiation. A compromised agent cannot forge user consent or replay expired authorizations."
-        />
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '10px',
-            marginTop: '12px',
-          }}
-        >
-          <DataMetricCard
-            label="INTENT ID"
-            value={s1.intent_id ? `${s1.intent_id.slice(0, 16)}...` : '0x8f12a4b...'}
-            subValue="Unique Cryptographic Nonce"
-          />
-          <DataMetricCard
-            label="POLICY STATUS"
-            value="ACTIVE IN REGISTRY"
-            subValue="Row Locked in SQLite"
-            accentColor="var(--accent-terminal)"
-          />
-          <DataMetricCard
-            label="EXPIRATION TIMESTAMP"
-            value="1 Hour Active"
-            subValue="Enforced by System Clock"
-          />
-        </div>
-
-        <EvidenceDrawer
-          isOpen={expandedDrawers['ch3']}
-          onToggle={() => toggleDrawer('ch3')}
-          title="Decoded JWT Header, Claims, and P-256 Verifier Output"
-          data={{
-            jwt_type: 'UserIntentCredential',
-            algorithm: 'ES256 (NIST P-256)',
-            signer: 'user_control_tower_01',
-            nonce_registered: s1.nonce || '0x4f8b9e12',
-            allowed_categories: s3.allowed_categories || ['bakery', 'gifting'],
-            policy_engine_verdict: 'PASS (INTENT_ACTIVE)',
-          }}
-          copyKey="raw_jwt"
-          copiedKey={copiedKey}
-          onCopy={handleCopy}
-        />
-      </div>
-
-      <ConduitConnector text="FORK // 1 INTENT DECOMPOSES INTO 2 INDEPENDENT MERCHANT RAILS" />
-
-      {/* =========================================================================
-          CHAPTER 04: THE COMPOSER // DETERMINISTIC MULTI-MERCHANT PURCHASE PLAN
-          ========================================================================= */}
-      <div id="chapter-04" className="chapter-node">
-        <ChapterHeader
-          num="04"
-          tag="PLAN FORK"
-          title="Deterministic Purchase Plan Decomposition"
-          badge="1 INTENT ➔ 2 RAILS"
-          badgeColor="badge-cyan"
-        />
-
-        <GuaranteeCallout
-          invariant="A single user intent deterministically generates two independent merchant execution legs with separate mandate IDs and merchant signatures."
-          benefit="Allows atomic basket grouping while isolating liability: an issue with candles never cancels or corrupts the cake."
-        />
-
-        {/* Visual Dual Rail Fork */}
-        <div className="dual-rail-grid" style={{ marginTop: '12px' }}>
-          {legs.map((leg, idx) => (
-            <div
-              key={idx}
-              style={{
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-bright)',
-                padding: '14px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                }}
-              >
-                <span
-                  style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.72rem',
-                    fontWeight: 700,
-                    color: 'var(--accent-terminal)',
-                  }}
-                >
-                  RAIL {idx === 0 ? 'A' : 'B'} // {leg.merchant_id}
-                </span>
-                <span className="badge badge-green">MANDATE ISSUED</span>
-              </div>
-
-              <div
-                style={{
-                  fontFamily: 'var(--font-macro)',
-                  fontSize: '0.98rem',
-                  fontWeight: 700,
-                  color: 'var(--text-phosphor)',
-                }}
-              >
-                {leg.name}
-              </div>
-
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.74rem',
-                  paddingTop: '6px',
-                  borderTop: '1px solid var(--border-line)',
-                  color: 'var(--text-secondary)',
-                }}
-              >
-                <span>SKU: {leg.sku}</span>
-                <span style={{ color: 'var(--accent-terminal)', fontWeight: 700 }}>
-                  ₹{(leg.amount_paise / 100).toFixed(2)}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <EvidenceDrawer
-          isOpen={expandedDrawers['ch4']}
-          onToggle={() => toggleDrawer('ch4')}
-          title="PurchasePlan Schema & Decomposed Mandate Records"
-          data={{
-            plan_id: s4.plan_id || 'plan_multi_01',
-            total_authorized_paise: s4.total_authorized_paise || 112000,
-            legs: s4.legs || [],
-          }}
-          copyKey="raw_plan"
-          copiedKey={copiedKey}
-          onCopy={handleCopy}
-        />
-      </div>
-
-      <ConduitConnector text="LOCK // PRE-EXECUTION EXPOSURE RESERVATION" />
-
-      {/* =========================================================================
-          CHAPTER 05: THE LOCKBOX // PRE-EXECUTION BALANCE RESERVATION
-          ========================================================================= */}
-      <div id="chapter-05" className="chapter-node">
-        <ChapterHeader
-          num="05"
-          tag="EXPOSURE CONTROL"
-          title="Pre-Execution Balance Reservation & Concurrency Lock"
-          badge="ZERO FLOAT MATH"
-          badgeColor="badge-green"
-        />
-
-        <GuaranteeCallout
-          invariant="₹1,120.00 is atomically reserved in IntentRegistry before contacting any payment gateway. All accounting uses exact integer paise."
-          benefit="Prevents concurrent multi-agent checkouts from overdrafting the user's budget and eliminates floating-point currency rounding errors."
-        />
-
-        {/* Visual Balance Tape */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '10px',
-            marginTop: '12px',
-          }}
-        >
-          <DataMetricCard
-            label="AUTHORIZED CEILING"
-            value="₹1,500.00"
-            subValue="150,000 paise"
-          />
-          <DataMetricCard
-            label="RESERVED FOR 2 LEGS"
-            value="₹1,120.00"
-            subValue="112,000 paise (Locked)"
-            accentColor="var(--accent-terminal)"
-          />
-          <DataMetricCard
-            label="FREE UNCOMMITTED BUFFER"
-            value="₹380.00"
-            subValue="38,000 paise (Available)"
-            accentColor="var(--accent-steel)"
-          />
-        </div>
-
-        {/* Allocation Bar */}
-        <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <div
-            style={{
-              height: '14px',
-              background: 'var(--bg-recessed)',
-              border: '1px solid var(--border-line)',
-              display: 'flex',
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                width: '74.6%',
-                background: 'var(--accent-terminal)',
-                color: '#052414',
-                fontSize: '0.62rem',
-                fontWeight: 900,
-                fontFamily: 'var(--font-mono)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              74.6% RESERVED (₹1,120.00)
-            </div>
-            <div
-              style={{
-                width: '25.4%',
-                background: 'var(--bg-surface)',
-                color: 'var(--text-secondary)',
-                fontSize: '0.62rem',
-                fontWeight: 700,
-                fontFamily: 'var(--font-mono)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              25.4% FREE (₹380.00)
-            </div>
-          </div>
-        </div>
-
-        <EvidenceDrawer
-          isOpen={expandedDrawers['ch5']}
-          onToggle={() => toggleDrawer('ch5')}
-          title="IntentRegistry SQL Row Lock & Integer Balance Snapshot"
-          data={{
-            intent_id: s1.intent_id || 'intent_demo_01',
-            spend_cap_paise: 150000,
-            reserved_paise: 112000,
-            captured_paise: 0,
-            available_paise: 38000,
-            sql_concurrency_lock: 'SELECT * FROM intent_registry WHERE intent_id = :id FOR UPDATE',
-          }}
-          copyKey="raw_reservation"
-          copiedKey={copiedKey}
-          onCopy={handleCopy}
-        />
-      </div>
-
-      <ConduitConnector text="TRIPWIRE // PRE-FLIGHT INVENTORY & PRICE FRESHNESS CHECK" />
-
-      {/* =========================================================================
-          CHAPTER 06: THE TRIPWIRE // JUST-IN-TIME (JIT) REVALIDATION
-          ========================================================================= */}
-      <div id="chapter-06" className="chapter-node">
-        <ChapterHeader
-          num="06"
-          tag="PRE-FLIGHT CHECK"
-          title="Just-In-Time Freshness & Inventory Re-Verification"
-          badge="DRIFT & STOCK TRIPWIRE"
-          badgeColor="badge-amber"
-        />
-
-        <GuaranteeCallout
-          invariant="Quotes and stock levels are re-checked at the exact moment of fulfillment. Any price drift or depleted inventory triggers an immediate fail-closed response."
-          benefit="Protects against phantom goods and surprise price increases between agent deliberation and warehouse checkout."
-        />
-
-        {/* Side-by-Side Pre-Flight Check */}
-        <div className="dual-rail-grid" style={{ marginTop: '12px' }}>
-          {/* Leg 1 Check */}
-          <div
-            style={{
-              background: 'var(--bg-surface)',
-              border: '1px solid rgba(52, 211, 153, 0.4)',
-              padding: '12px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--accent-terminal)' }}>
-                RAIL A: CAKEHOUSE ARTISANS
-              </span>
-              <span className="badge badge-green">PROCEED</span>
-            </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>ITEM:</span>
-                <span>Chocolate Truffle Cake (1kg)</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>STOCK CHECK:</span>
-                <span style={{ color: 'var(--accent-terminal)' }}>VERIFIED IN STOCK</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>PRICE DRIFT:</span>
-                <span style={{ color: 'var(--accent-terminal)' }}>₹0.00 (UNCHANGED ₹940.00)</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Leg 2 Check */}
-          <div
-            style={{
-              background: 'var(--bg-surface)',
-              border: `1px solid ${simulateLeg2Failure ? 'rgba(208, 59, 59, 0.4)' : 'rgba(52, 211, 153, 0.4)'}`,
-              padding: '12px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  color: simulateLeg2Failure ? 'var(--accent-red)' : 'var(--accent-terminal)',
-                }}
-              >
-                RAIL B: SWEET DELIGHTS
-              </span>
-              <span className={`badge ${simulateLeg2Failure ? 'badge-red' : 'badge-green'}`}>
-                {simulateLeg2Failure ? 'FAIL-CLOSED TRIGGERED' : 'PROCEED'}
-              </span>
-            </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>ITEM:</span>
-                <span>Party Candle Set & Greeting Card</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>STOCK CHECK:</span>
-                <span style={{ color: simulateLeg2Failure ? 'var(--accent-red)' : 'var(--accent-terminal)', fontWeight: 700 }}>
-                  {simulateLeg2Failure ? 'OUT OF STOCK (DEPLETED)' : 'VERIFIED IN STOCK'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>VERDICT:</span>
-                <span style={{ color: simulateLeg2Failure ? 'var(--accent-red)' : 'var(--accent-terminal)', fontWeight: 700 }}>
-                  {simulateLeg2Failure ? 'RELEASE RESERVATION (₹180.00)' : 'PROCEED TO CAPTURE'}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <EvidenceDrawer
-          isOpen={expandedDrawers['ch6']}
-          onToggle={() => toggleDrawer('ch6')}
-          title="JIT Pre-Flight Freshness & Inventory Revalidation Delta"
-          data={{
-            leg1_cakehouse: leg1Jit,
-            leg2_sweetdelight: leg2Jit,
-          }}
-          copyKey="raw_jit"
-          copiedKey={copiedKey}
-          onCopy={handleCopy}
-        />
-      </div>
-
-      <ConduitConnector text="EXECUTION // INDEPENDENT PAYMENT RAILS" />
-
-      {/* =========================================================================
-          CHAPTER 07: SEPARATED RAILS // INDEPENDENT EXECUTION & RELEASE
-          ========================================================================= */}
-      <div id="chapter-07" className="chapter-node">
-        <ChapterHeader
-          num="07"
-          tag="ISOLATED RAILS"
-          title="Independent Payment Execution & Partial Failure Isolation"
-          badge="NO CASCADE PANIC"
-          badgeColor="badge-cyan"
-        />
-
-        <GuaranteeCallout
-          invariant="Merchant rails execute independently. Leg 1 captures funds via Razorpay webhook; Leg 2 cleanly releases its reservation without touching Leg 1."
-          benefit="Eliminates the danger of cascading rollbacks. A failure on one merchant does not cancel or corrupt valid items from other merchants."
-        />
-
-        {/* Dual Rail Execution Results */}
-        <div className="dual-rail-grid" style={{ marginTop: '12px' }}>
-          {/* Leg 1 Result */}
-          <div
-            style={{
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--border-bright)',
-              padding: '14px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--accent-terminal)' }}>
-                RAIL A: CAKEHOUSE ARTISANS
-              </span>
-              <span className="badge badge-green">PAYMENT CAPTURED</span>
-            </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>RAZORPAY ORDER:</span>
-                <span style={{ color: 'var(--text-phosphor)' }}>{leg1Exec.razorpay_order_id || 'order_cake_demo_01'}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>CAPTURED FUNDS:</span>
-                <span style={{ color: 'var(--accent-terminal)', fontWeight: 700 }}>₹940.00</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>WEBHOOK HMAC:</span>
-                <span style={{ color: 'var(--accent-terminal)' }}>AUTHENTICATED (whsec_demo)</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Leg 2 Result */}
-          <div
-            style={{
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--border-bright)',
-              padding: '14px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', fontWeight: 700, color: simulateLeg2Failure ? 'var(--accent-amber)' : 'var(--accent-terminal)' }}>
-                RAIL B: SWEET DELIGHTS
-              </span>
-              <span className={`badge ${simulateLeg2Failure ? 'badge-amber' : 'badge-green'}`}>
-                {simulateLeg2Failure ? 'RESERVATION RELEASED' : 'CAPTURED'}
-              </span>
-            </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>OUTCOME:</span>
-                <span style={{ color: simulateLeg2Failure ? 'var(--accent-amber)' : 'var(--accent-terminal)', fontWeight: 700 }}>
-                  {simulateLeg2Failure ? '₹180.00 RETURNED TO USER' : '₹180.00 CAPTURED'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>REASON:</span>
-                <span style={{ color: 'var(--text-secondary)' }}>
-                  {simulateLeg2Failure ? 'MERCHANT_STOCK_EXHAUSTED' : 'SUCCESS'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>CROSS-LEG IMPACT:</span>
-                <span style={{ color: 'var(--accent-terminal)' }}>0% (ISOLATED RAIL)</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <EvidenceDrawer
-          isOpen={expandedDrawers['ch7']}
-          onToggle={() => toggleDrawer('ch7')}
-          title="Razorpay Capture Webhook HMAC & Reservation Release Audit"
-          data={{
-            leg1_execution: leg1Exec,
-            leg2_execution: leg2Exec,
-          }}
-          copyKey="raw_execution"
-          copiedKey={copiedKey}
-          onCopy={handleCopy}
-        />
-      </div>
-
-      <ConduitConnector text="CONVERGENCE // PARTIAL SETTLEMENT RECONCILIATION" />
-
-      {/* =========================================================================
-          CHAPTER 08: THE SETTLEMENT // PARTIAL COMPLETION (ZERO FALSE ATOMICITY)
-          ========================================================================= */}
-      <div id="chapter-08" className="chapter-node">
-        <ChapterHeader
-          num="08"
-          tag="SETTLEMENT"
-          title="Aggregate Plan Settlement: PARTIAL_COMPLETE"
-          badge="ZERO PHANTOM GOODS"
-          badgeColor="badge-green"
-        />
-
-        <GuaranteeCallout
-          invariant="The aggregate plan settles as PARTIAL_COMPLETE. Rather than panicking with an all-or-nothing rollback, Mandate Mesh preserves captured goods while safely unlocking unspent money."
-          benefit="In physical commerce, you cannot 'un-bake' a birthday cake because candles ran out of stock. Mandate Mesh matches physical reality: exact financial reconciliation with zero money lost."
-        />
-
-        {/* Settlement Financial Summary */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: '10px',
-            marginTop: '12px',
-          }}
-        >
-          <DataMetricCard
-            label="AGGREGATE PLAN STATUS"
-            value={s8.plan_status || (simulateLeg2Failure ? 'PARTIAL_COMPLETE' : 'COMPLETED')}
-            subValue="Canonical PurchasePlan State"
-            accentColor="var(--accent-terminal)"
-          />
-          <DataMetricCard
-            label="TOTAL CAPTURED FUNDS"
-            value="₹940.00"
-            subValue="CakeHouse (Goods Secured)"
-            accentColor="var(--accent-terminal)"
-          />
-          <DataMetricCard
-            label="TOTAL UNSPENT / RELEASED"
-            value={simulateLeg2Failure ? '₹180.00' : '₹0.00'}
-            subValue="Sweet Delights (Returned)"
-            accentColor="var(--accent-steel)"
-          />
-          <DataMetricCard
-            label="TOTAL PHANTOM / LOST"
-            value="₹0.00"
-            subValue="Zero Financial Leakage"
-            accentColor="var(--accent-terminal)"
-          />
-        </div>
-
-        <EvidenceDrawer
-          isOpen={expandedDrawers['ch8']}
-          onToggle={() => toggleDrawer('ch8')}
-          title="Financial Reconciliation & Atomicity Comparison Analysis"
-          data={{
-            plan_status: s8.plan_status || 'PARTIAL_COMPLETE',
-            authorized_total_paise: s8.total_authorized_paise || 112000,
-            captured_total_paise: s8.total_captured_paise || 94000,
-            released_total_paise: s8.total_released_paise || 18000,
-            atomicity_guarantee: s8.atomicity_verdict,
-          }}
-          copyKey="raw_settlement"
-          copiedKey={copiedKey}
-          onCopy={handleCopy}
-        />
-      </div>
-
-      <ConduitConnector text="SEAL // IMMUTABLE AUDIT LOGGING" />
-
-      {/* =========================================================================
-          CHAPTER 09: THE PROOF // APPEND-ONLY HASH-CHAINED AUDIT LEDGER
-          ========================================================================= */}
-      <div id="chapter-09" className="chapter-node">
-        <ChapterHeader
-          num="09"
-          tag="AUDIT PROOF"
-          title="SHA-256 Hash-Chained Cryptographic Audit Ledger"
-          badge="100% LINEAR HASH CONTINUITY"
-          badgeColor="badge-green"
-        />
-
-        <GuaranteeCallout
-          invariant="Every single lifecycle transition—from intent signature to cart verification, balance reservation, order creation, capture webhook, and partial release—is permanently sealed in an append-only SHA-256 hash chain."
-          benefit="Provides mathematical proof for audits, disputes, and compliance. Neither buyer, merchant, nor platform operator can alter past records without breaking the chain."
-        />
-
-        {/* Sealed Block Sequence */}
-        <div style={{ marginTop: '12px' }}>
-          <div
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.68rem',
-              color: 'var(--text-muted)',
-              marginBottom: '8px',
-              textTransform: 'uppercase',
-              fontWeight: 700,
-            }}
-          >
-            SEALED TRANSACTION BLOCK SEQUENCE:
-          </div>
-
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-          >
-            {[
-              'INTENT_CREATED',
-              'CART_SIGNED',
-              'MANDATE_CREATED (Leg 1)',
-              'MANDATE_CREATED (Leg 2)',
-              'ORDER_CREATED (Leg 1)',
-              'PAYMENT_CAPTURED (Leg 1)',
-              'POLICY_REJECTED / RELEASED (Leg 2)',
-            ].map((evt, idx, arr) => (
-              <React.Fragment key={idx}>
-                <div
-                  style={{
-                    background: 'var(--bg-surface)',
-                    border: '1px solid var(--border-bright)',
-                    padding: '4px 8px',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.68rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                  }}
-                >
-                  <Check size={10} color="var(--accent-terminal)" />
-                  <span style={{ color: 'var(--text-phosphor)' }}>{evt}</span>
-                </div>
-                {idx < arr.length - 1 && (
-                  <span style={{ color: 'var(--text-dim)', fontSize: '0.7rem' }}>➔</span>
-                )}
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
-
-        {/* Switch to Full Ledger */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '8px 12px',
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-line)',
-            marginTop: '12px',
-          }}
-        >
-          <span
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.74rem',
-              color: 'var(--text-secondary)',
-            }}
-          >
-            Inspect every raw block digest, payload hash, and Merkle linkage in the live explorer:
-          </span>
-          {onSwitchToAuditLedger && (
-            <button
-              className="btn btn-primary"
-              onClick={onSwitchToAuditLedger}
-              style={{ fontSize: '0.72rem', padding: '4px 12px' }}
-            >
-              <Database size={12} />
-              <span>OPEN FULL AUDIT LEDGER ➔</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {journeyData && (
+            <button className={`btn ${isAutoScrolling ? 'btn-danger' : 'btn-primary'}`} onClick={handleToggleAutoScroll} style={{ fontSize: '0.66rem', padding: '4px 9px' }}>
+              {isAutoScrolling ? <><Pause size={10} /><span>PAUSE</span></> : <><Play size={10} /><span>REPLAY TRACE</span></>}
             </button>
           )}
+          <select value={scenario} onChange={(e) => setScenario(e.target.value)} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.63rem', padding: '4px 6px', background: 'var(--bg-recessed)', color: 'var(--text-label)', border: '1px solid var(--border-line)', cursor: 'pointer' }}>
+            <option value="partial_failure">PARTIAL FAILURE</option>
+            <option value="all_success">ALL SUCCESS</option>
+          </select>
+          <button onClick={loadData} disabled={loading} className="btn btn-secondary" style={{ fontSize: '0.63rem', padding: '4px 8px' }}>
+            <RefreshCw size={10} /><span>RUN AGAIN</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ═══════ CH01 — USER GOAL ═══════ */}
+      <div className="chapter-node" id="chapter-01">
+        <ChapterHeader num="01" tag="INITIATE" title="User Goal & Spend Boundary" badge={formatPaise(d.intent?.spend_cap_paise)} badgeColor="badge-cyan" />
+        <GuaranteeCallout icon={<ShieldCheck size={14} />} text={`Spend cap: ${formatPaise(d.intent?.spend_cap_paise)} · Scenario: ${d.scenario}`} color="var(--accent-cyan)" />
+
+        <div className="metric-grid">
+          <DataMetricCard label="RAW QUERY" value={`"${d.goal}"`} mono />
+          <DataMetricCard label="SPEND CAP" value={formatPaise(d.intent?.spend_cap_paise)} />
+          <DataMetricCard label="NONCE" value={d.intent?.nonce?.slice(0, 16) + '…'} mono />
+          <DataMetricCard label="INTENT ID" value={d.intent?.intent_id?.slice(0, 12) + '…'} mono />
         </div>
 
-        <EvidenceDrawer
-          isOpen={expandedDrawers['ch9']}
-          onToggle={() => toggleDrawer('ch9')}
-          title="Cryptographic Hash Chain Block Proof & Genesis Linkage"
-          data={{
-            chain_status: '100% LINEAR',
-            total_blocks: s9.total_blocks || 662,
-            hashing_algorithm: 'SHA-256',
-            genesis_hash: '0000000000000000000000000000000000000000000000000000000000000000',
-            audit_guarantee: s9.mathematical_guarantee,
-          }}
-          copyKey="raw_audit"
-          copiedKey={copiedKey}
-          onCopy={handleCopy}
-        />
+        <EvidenceDrawer label="RAW INTENT CREDENTIAL" drawerKey="ch01_raw" isExpanded={expandedDrawers['ch01_raw']} onToggle={toggleDrawer} data={d.intent} copyKey="raw_intent" copiedKey={copiedKey} onCopy={handleCopy} />
+      </div>
+      <ConduitConnector />
+
+      {/* ═══════ CH02 — AI DELIBERATION ═══════ */}
+      <div className="chapter-node" id="chapter-02">
+        <ChapterHeader num="02" tag="DELIBERATE" title="AI Buyer Agent Deliberation" badge={d.ai?.executed ? 'GEMINI LIVE' : 'DETERMINISTIC FALLBACK'} badgeColor={d.ai?.executed ? 'badge-green' : 'badge-amber'} />
+        <GuaranteeCallout icon={<Cpu size={14} />} text={d.ai?.llm_boundary_guarantee} color="var(--accent-amber)" />
+
+        <div className="metric-grid">
+          <DataMetricCard label="AI EXECUTED" value={d.ai?.executed ? 'YES — Live LLM' : 'NO — Heuristic Fallback'} />
+          <DataMetricCard label="CATALOG CANDIDATES" value={d.ai?.catalog_candidates_count} />
+          <DataMetricCard label="PROPOSED ITEMS" value={d.ai?.proposed_items?.length || 0} />
+        </div>
+
+        {d.ai?.llm_reasoning && (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-label)', background: 'var(--bg-recessed)', padding: '10px 12px', border: '1px solid var(--border-line)', marginTop: '10px', fontStyle: 'italic' }}>
+            LLM: "{d.ai.llm_reasoning}"
+          </div>
+        )}
+
+        {d.ai?.candidate_merchants?.length > 0 && (
+          <div style={{ marginTop: '12px' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--text-muted)', letterSpacing: '0.1em', marginBottom: '6px' }}>CANDIDATE MERCHANT QUOTES</div>
+            <table className="audit-table">
+              <thead><tr><th>MERCHANT</th><th>STATUS</th><th>QUOTE</th></tr></thead>
+              <tbody>
+                {d.ai.candidate_merchants.map((cm, i) => (
+                  <tr key={i}>
+                    <td>{cm.name || cm.merchant_id}</td>
+                    <td><span className={`badge ${cm.status === 'ELIGIBLE' ? 'badge-green' : 'badge-amber'}`}>{cm.status}</span></td>
+                    <td>{cm.total_paise ? formatPaise(cm.total_paise) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <EvidenceDrawer label="RAW AI DELIBERATION" drawerKey="ch02_raw" isExpanded={expandedDrawers['ch02_raw']} onToggle={toggleDrawer} data={d.ai} copyKey="raw_ai" copiedKey={copiedKey} onCopy={handleCopy} />
+      </div>
+      <ConduitConnector />
+
+      {/* ═══════ CH03 — INTENT BOUNDARY ═══════ */}
+      <div className="chapter-node" id="chapter-03">
+        <ChapterHeader num="03" tag="VERIFY" title="Cryptographic Intent Boundary" badge="ES256 VERIFIED" badgeColor="badge-green" />
+        <GuaranteeCallout icon={<Key size={14} />} text={`NIST P-256 signed credential. Spend cap: ${formatPaise(d.intent?.spend_cap_paise)}`} color="var(--accent-green)" />
+
+        <div className="metric-grid">
+          <DataMetricCard label="VERIFIED" value={d.intent?.verified ? 'TRUE' : 'FALSE'} />
+          <DataMetricCard label="CATEGORIES" value={d.intent?.allowed_categories?.join(', ')} />
+          <DataMetricCard label="MERCHANTS" value={d.intent?.allowed_merchant_ids?.join(', ')} mono />
+          <DataMetricCard label="VALID WINDOW" value={`${d.intent?.not_before?.slice(11, 19) || '?'} → ${d.intent?.expires_at?.slice(11, 19) || '?'} UTC`} />
+        </div>
+      </div>
+      <ConduitConnector />
+
+      {/* ═══════ CH04 — PURCHASE PLAN ═══════ */}
+      <div className="chapter-node" id="chapter-04">
+        <ChapterHeader num="04" tag="PLAN" title="Multi-Merchant Purchase Plan" badge={`${d.plan?.legs_count || 0} LEGS`} badgeColor="badge-cyan" />
+        <GuaranteeCallout icon={<Layers size={14} />} text={`1 Intent → 1 Plan → ${d.plan?.legs_count || 0} Independent Mandates. Total authorized: ${formatPaise(d.plan?.total_authorized_paise)}`} color="var(--accent-cyan)" />
+
+        <div className="metric-grid">
+          <DataMetricCard label="PLAN ID" value={d.plan?.plan_id?.slice(0, 12) + '…'} mono />
+          <DataMetricCard label="TOTAL AUTHORIZED" value={formatPaise(d.plan?.total_authorized_paise)} />
+          <DataMetricCard label="LEGS" value={d.plan?.legs_count} />
+        </div>
+
+        {planLegs.map((leg, i) => (
+          <div key={leg.leg_id || i} style={{ marginTop: '12px', padding: '12px', background: 'var(--bg-recessed)', border: '1px solid var(--border-line)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontFamily: 'var(--font-macro)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-phosphor)' }}>
+                LEG {String.fromCharCode(65 + i)} — {leg.merchant_name || leg.merchant_id}
+              </span>
+              <span className={`badge ${leg.status === 'PAYMENT_CAPTURED' ? 'badge-green' : leg.status === 'RELEASED' ? 'badge-amber' : 'badge-cyan'}`}>{leg.status}</span>
+            </div>
+            <div className="metric-grid">
+              <DataMetricCard label="MANDATE ID" value={leg.leg_id?.slice(0, 12) + '…'} mono />
+              <DataMetricCard label="SKU" value={leg.sku} mono />
+              <DataMetricCard label="ITEM" value={leg.name} />
+              <DataMetricCard label="AUTHORIZED" value={formatPaise(leg.amount_paise)} />
+            </div>
+          </div>
+        ))}
+
+        <EvidenceDrawer label="RAW PURCHASE PLAN" drawerKey="ch04_raw" isExpanded={expandedDrawers['ch04_raw']} onToggle={toggleDrawer} data={d.plan} copyKey="raw_plan" copiedKey={copiedKey} onCopy={handleCopy} />
+      </div>
+      <ConduitConnector />
+
+      {/* ═══════ CH05 — RESERVATION ═══════ */}
+      <div className="chapter-node" id="chapter-05">
+        <ChapterHeader num="05" tag="RESERVE" title="IntentRegistry Accounting" badge={`${reservedPct}% RESERVED`} badgeColor="badge-cyan" />
+        <GuaranteeCallout icon={<Lock size={14} />} text="Aggregate multi-merchant exposure locked prior to gateway execution. 0 float error." color="var(--accent-cyan)" />
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '12px' }}>
+          {/* Pre-execution */}
+          <div style={{ padding: '14px', background: 'var(--bg-recessed)', border: '1px solid var(--border-line)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--text-muted)', letterSpacing: '0.1em', marginBottom: '10px' }}>PRE-EXECUTION</div>
+            <div className="metric-grid">
+              <DataMetricCard label="SPEND CAP" value={formatPaise(preExec.spend_cap_paise)} />
+              <DataMetricCard label="RESERVED" value={formatPaise(preExec.reserved_paise)} />
+              <DataMetricCard label="CAPTURED" value={formatPaise(preExec.captured_paise)} />
+              <DataMetricCard label="AVAILABLE" value={formatPaise(preExec.available_paise)} />
+            </div>
+          </div>
+
+          {/* Post-execution */}
+          <div style={{ padding: '14px', background: 'var(--bg-recessed)', border: '1px solid var(--border-line)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--text-muted)', letterSpacing: '0.1em', marginBottom: '10px' }}>POST-EXECUTION</div>
+            <div className="metric-grid">
+              <DataMetricCard label="RESERVED" value={formatPaise(postExec.reserved_paise)} />
+              <DataMetricCard label="CAPTURED" value={formatPaise(postExec.captured_paise)} />
+              <DataMetricCard label="RELEASED" value={formatPaise(d.settlement?.released_paise)} />
+              <DataMetricCard label="AVAILABLE" value={formatPaise(postExec.available_paise)} />
+            </div>
+          </div>
+        </div>
+
+        {/* Visual bar */}
+        <div style={{ marginTop: '14px', height: '24px', background: 'var(--bg-recessed)', border: '1px solid var(--border-line)', position: 'relative', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${capturedPct}%`, background: 'var(--accent-terminal)', opacity: 0.7, transition: 'width 0.6s ease' }} />
+          <div style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--text-phosphor)', fontWeight: 700 }}>
+            {capturedPct}% CAPTURED
+          </div>
+        </div>
+
+        <EvidenceDrawer label="RAW RESERVATION DATA" drawerKey="ch05_raw" isExpanded={expandedDrawers['ch05_raw']} onToggle={toggleDrawer} data={d.reservation} copyKey="raw_reservation" copiedKey={copiedKey} onCopy={handleCopy} />
+      </div>
+      <ConduitConnector />
+
+      {/* ═══════ CH06 — JIT REVALIDATION ═══════ */}
+      <div className="chapter-node" id="chapter-06">
+        <ChapterHeader num="06" tag="REVALIDATE" title="Just-In-Time Pre-Flight" badge={legs.some(l => !l.jit?.passed) ? 'PARTIAL FAIL' : 'ALL CLEAR'} badgeColor={legs.some(l => !l.jit?.passed) ? 'badge-amber' : 'badge-green'} />
+        <GuaranteeCallout icon={<FileCheck size={14} />} text="Real-time stock & quote revalidation at the exact moment of execution." color="var(--accent-green)" />
+
+        {legs.map((leg, i) => {
+          const jit = leg.jit || {};
+          const passed = jit.passed;
+          return (
+            <div key={leg.mandate_id || i} style={{ marginTop: '12px', padding: '14px', background: 'var(--bg-recessed)', border: `1px solid ${passed ? 'var(--accent-terminal)' : 'var(--accent-red)'}`, borderLeft: `3px solid ${passed ? 'var(--accent-terminal)' : 'var(--accent-red)'}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <span style={{ fontFamily: 'var(--font-macro)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-phosphor)' }}>
+                  LEG {String.fromCharCode(65 + i)} — {leg.merchant_name || leg.merchant_id}
+                </span>
+                <span className={`badge ${passed ? 'badge-green' : 'badge-red'}`}>{jit.verdict || (passed ? 'PROCEED' : 'FAIL')}</span>
+              </div>
+              <div className="metric-grid">
+                <DataMetricCard label="SKU CHECKED" value={jit.sku_checked} mono />
+                <DataMetricCard label="IN STOCK" value={jit.in_stock ? 'YES' : 'NO'} />
+                <DataMetricCard label="QUOTE VALID" value={jit.quote_valid ? 'YES' : 'NO'} />
+                <DataMetricCard label="PRICE DRIFT" value={jit.price_drift_paise != null ? `${jit.price_drift_paise} paise` : '—'} />
+              </div>
+              {!passed && jit.message && (
+                <div style={{ marginTop: '8px', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--accent-red)', background: 'rgba(255,60,60,0.06)', padding: '8px 10px', border: '1px solid rgba(255,60,60,0.15)' }}>
+                  <strong>{jit.error_code}:</strong> {jit.message}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        <EvidenceDrawer label="RAW JIT DATA" drawerKey="ch06_raw" isExpanded={expandedDrawers['ch06_raw']} onToggle={toggleDrawer} data={legs.map(l => l.jit)} copyKey="raw_jit" copiedKey={copiedKey} onCopy={handleCopy} />
+      </div>
+      <ConduitConnector />
+
+      {/* ═══════ CH07 — EXECUTION ═══════ */}
+      <div className="chapter-node" id="chapter-07">
+        <ChapterHeader num="07" tag="EXECUTE" title="Independent Leg Execution" badge={`${d.settlement?.successful_legs || 0}/${legs.length} CAPTURED`} badgeColor={d.settlement?.failed_legs ? 'badge-amber' : 'badge-green'} />
+        <GuaranteeCallout icon={<Split size={14} />} text="Each leg executed independently. Captured funds from successful legs never reversed." color="var(--accent-cyan)" />
+
+        {legs.map((leg, i) => {
+          const isCaptured = leg.final_status === 'PAYMENT_CAPTURED';
+          const isReleased = leg.final_status === 'RELEASED';
+          return (
+            <div key={leg.mandate_id || i} style={{ marginTop: '12px', padding: '14px', background: 'var(--bg-recessed)', border: `1px solid ${isCaptured ? 'var(--accent-terminal)' : isReleased ? 'var(--accent-amber)' : 'var(--border-line)'}`, borderLeft: `3px solid ${isCaptured ? 'var(--accent-terminal)' : isReleased ? 'var(--accent-amber)' : 'var(--border-line)'}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <span style={{ fontFamily: 'var(--font-macro)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-phosphor)' }}>
+                  LEG {String.fromCharCode(65 + i)} — {leg.merchant_name || leg.merchant_id}
+                </span>
+                <span className={`badge ${isCaptured ? 'badge-green' : isReleased ? 'badge-amber' : 'badge-cyan'}`}>{leg.final_status}</span>
+              </div>
+              <div className="metric-grid">
+                <DataMetricCard label="MANDATE ID" value={leg.mandate_id?.slice(0, 12) + '…'} mono />
+                <DataMetricCard label="ORDER ID" value={leg.order?.razorpay_order_id || '—'} mono />
+                <DataMetricCard label="AUTHORIZED" value={formatPaise(leg.authorized_amount_paise)} />
+                <DataMetricCard label="CAPTURED" value={formatPaise(leg.payment?.captured_paise)} />
+                {isReleased && <DataMetricCard label="RELEASED" value={formatPaise(leg.released_reservation_paise)} />}
+                {leg.payment?.webhook_status && <DataMetricCard label="WEBHOOK" value={leg.payment.webhook_status} />}
+              </div>
+            </div>
+          );
+        })}
+
+        <EvidenceDrawer label="RAW EXECUTION DATA" drawerKey="ch07_raw" isExpanded={expandedDrawers['ch07_raw']} onToggle={toggleDrawer} data={legs} copyKey="raw_execution" copiedKey={copiedKey} onCopy={handleCopy} />
+      </div>
+      <ConduitConnector />
+
+      {/* ═══════ CH08 — SETTLEMENT ═══════ */}
+      <div className="chapter-node" id="chapter-08">
+        <ChapterHeader num="08" tag="SETTLE" title="Partial Settlement Outcome"
+          badge={d.settlement?.plan_status || '—'}
+          badgeColor={d.settlement?.plan_status === 'COMPLETE' ? 'badge-green' : 'badge-amber'} />
+        <GuaranteeCallout icon={<Database size={14} />}
+          text={d.settlement?.plan_status === 'COMPLETE' ? 'All legs captured. Full settlement complete.' : 'Captured funds untouched. Zero false atomicity. No phantom goods.'}
+          color={d.settlement?.plan_status === 'COMPLETE' ? 'var(--accent-green)' : 'var(--accent-amber)'} />
+
+        <div className="metric-grid">
+          <DataMetricCard label="PLAN STATUS" value={d.settlement?.plan_status} />
+          <DataMetricCard label="AUTHORIZED" value={formatPaise(d.settlement?.authorized_paise)} />
+          <DataMetricCard label="CAPTURED" value={formatPaise(d.settlement?.captured_paise)} />
+          <DataMetricCard label="RELEASED" value={formatPaise(d.settlement?.released_paise)} />
+          <DataMetricCard label="AVAILABLE" value={formatPaise(d.settlement?.available_paise)} />
+          <DataMetricCard label="SUCCESSFUL LEGS" value={d.settlement?.successful_legs} />
+          <DataMetricCard label="FAILED LEGS" value={d.settlement?.failed_legs} />
+        </div>
+
+        {/* Visual settlement bar */}
+        <div style={{ marginTop: '14px' }}>
+          <div style={{ display: 'flex', height: '28px', border: '1px solid var(--border-line)', overflow: 'hidden' }}>
+            {d.settlement?.captured_paise > 0 && (
+              <div style={{ width: `${pct(d.settlement.captured_paise, d.settlement.authorized_paise)}%`, background: 'var(--accent-terminal)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: '#052414', fontWeight: 700, transition: 'width 0.6s' }}>
+                CAPTURED {pct(d.settlement.captured_paise, d.settlement.authorized_paise)}%
+              </div>
+            )}
+            {d.settlement?.released_paise > 0 && (
+              <div style={{ width: `${pct(d.settlement.released_paise, d.settlement.authorized_paise)}%`, background: 'var(--accent-amber)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: '#1a1206', fontWeight: 700, transition: 'width 0.6s' }}>
+                RELEASED
+              </div>
+            )}
+          </div>
+        </div>
+
+        <EvidenceDrawer label="RAW SETTLEMENT DATA" drawerKey="ch08_raw" isExpanded={expandedDrawers['ch08_raw']} onToggle={toggleDrawer} data={d.settlement} copyKey="raw_settlement" copiedKey={copiedKey} onCopy={handleCopy} />
+      </div>
+      <ConduitConnector />
+
+      {/* ═══════ CH09 — AUDIT PROOF ═══════ */}
+      <div className="chapter-node" id="chapter-09">
+        <ChapterHeader num="09" tag="AUDIT" title="Hash-Chained Audit Proof" badge={d.audit?.chain_valid ? 'CHAIN VALID' : 'CHAIN BROKEN'} badgeColor={d.audit?.chain_valid ? 'badge-green' : 'badge-red'} />
+        <GuaranteeCallout icon={<Terminal size={14} />} text="Every financial state transition permanently sealed in append-only SHA-256 hash chain." color="var(--accent-terminal)" />
+
+        <div className="metric-grid">
+          <DataMetricCard label="CHAIN VALID" value={d.audit?.chain_valid ? 'TRUE' : 'FALSE'} />
+          <DataMetricCard label="TOTAL BLOCKS" value={d.audit?.total_blocks} />
+          <DataMetricCard label="RUN EVENTS" value={events.length} />
+        </div>
+
+        {events.length > 0 && (
+          <div style={{ marginTop: '12px' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', color: 'var(--text-muted)', letterSpacing: '0.1em', marginBottom: '6px' }}>RUN-SCOPED LEDGER EVENTS</div>
+            <table className="audit-table">
+              <thead><tr><th>#</th><th>EVENT TYPE</th><th>HASH</th><th>TIMESTAMP</th></tr></thead>
+              <tbody>
+                {events.map((ev, i) => (
+                  <tr key={i}>
+                    <td>{i + 1}</td>
+                    <td><span className="badge badge-cyan">{ev.type}</span></td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}>{ev.entry_hash?.slice(0, 16)}…</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}>{ev.created_at?.slice(11, 19) || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <EvidenceDrawer label="RAW AUDIT DATA" drawerKey="ch09_raw" isExpanded={expandedDrawers['ch09_raw']} onToggle={toggleDrawer} data={d.audit} copyKey="raw_audit" copiedKey={copiedKey} onCopy={handleCopy} />
       </div>
     </div>
   );
@@ -1138,268 +550,233 @@ function ChapterHeader({ num, tag, title, badge, badgeColor = 'badge-cyan' }) {
     <div
       style={{
         display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
+        alignItems: 'center',
         gap: '10px',
-        paddingBottom: '12px',
+        paddingBottom: '10px',
         borderBottom: '1px solid var(--border-line)',
-      }}
-    >
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-          <span
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '0.72rem',
-              color: 'var(--accent-terminal)',
-              fontWeight: 700,
-              letterSpacing: '0.08em',
-            }}
-          >
-            CHAPTER {num} // 09
-          </span>
-          <span className="badge badge-steel">{tag}</span>
-        </div>
-        <h2
-          style={{
-            fontFamily: 'var(--font-macro)',
-            fontSize: '1.18rem',
-            letterSpacing: '-0.02em',
-            color: 'var(--text-phosphor)',
-            margin: 0,
-          }}
-        >
-          {title}
-        </h2>
-      </div>
-      <span className={`badge ${badgeColor}`}>{badge}</span>
-    </div>
-  );
-}
-
-function GuaranteeCallout({ invariant, benefit }) {
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: '12px',
-        marginTop: '12px',
-      }}
-    >
-      <div
-        style={{
-          background: 'var(--bg-recessed)',
-          border: '1px solid var(--border-line)',
-          padding: '10px 12px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '4px',
-        }}
-      >
-        <span
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: '0.68rem',
-            fontWeight: 700,
-            color: 'var(--accent-terminal)',
-            letterSpacing: '0.05em',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-          }}
-        >
-          <Zap size={11} />
-          <span>[ ARCHITECTURAL INVARIANT ]</span>
-        </span>
-        <p
-          style={{
-            fontFamily: 'var(--font-sans)',
-            fontSize: '0.78rem',
-            color: 'var(--text-phosphor)',
-            lineHeight: 1.45,
-          }}
-        >
-          {invariant}
-        </p>
-      </div>
-
-      <div
-        style={{
-          background: 'var(--bg-recessed)',
-          border: '1px solid var(--border-line)',
-          padding: '10px 12px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '4px',
-        }}
-      >
-        <span
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: '0.68rem',
-            fontWeight: 700,
-            color: 'var(--accent-red)',
-            letterSpacing: '0.05em',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-          }}
-        >
-          <ShieldCheck size={11} />
-          <span>[ BUYER FINANCIAL PROTECTION ]</span>
-        </span>
-        <p
-          style={{
-            fontFamily: 'var(--font-sans)',
-            fontSize: '0.78rem',
-            color: 'var(--text-phosphor)',
-            lineHeight: 1.45,
-          }}
-        >
-          {benefit}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function ConduitConnector({ text }) {
-  return (
-    <div className="chapter-connector">
-      <div className="chapter-connector-badge">{text}</div>
-    </div>
-  );
-}
-
-function DataMetricCard({
-  label,
-  value,
-  subValue,
-  accentColor = 'var(--text-phosphor)',
-  isText = false,
-}) {
-  return (
-    <div
-      style={{
-        background: 'var(--bg-recessed)',
-        border: '1px solid var(--border-line)',
-        padding: '8px 10px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '3px',
+        marginBottom: '14px',
       }}
     >
       <span
         style={{
           fontFamily: 'var(--font-mono)',
-          fontSize: '0.64rem',
-          color: 'var(--text-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em',
+          fontWeight: 900,
+          fontSize: '0.68rem',
+          color: 'var(--accent-terminal)',
+          letterSpacing: '0.05em',
+          flexShrink: 0,
         }}
       >
-        {label}
+        {num}
+      </span>
+      <span
+        className={`badge badge-terminal`}
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontWeight: 800,
+          fontSize: '0.55rem',
+          letterSpacing: '0.12em',
+          flexShrink: 0,
+        }}
+      >
+        {tag}
       </span>
       <span
         style={{
-          fontFamily: isText ? 'var(--font-sans)' : 'var(--font-mono)',
-          fontSize: isText ? '0.8rem' : '0.94rem',
+          fontFamily: 'var(--font-macro)',
           fontWeight: 700,
-          color: accentColor,
-          lineHeight: 1.2,
+          fontSize: '0.82rem',
+          color: 'var(--text-phosphor)',
+          flexGrow: 1,
         }}
       >
-        {value}
+        {title}
       </span>
-      {subValue && (
+      {badge && (
         <span
+          className={`badge ${badgeColor}`}
           style={{
             fontFamily: 'var(--font-mono)',
-            fontSize: '0.62rem',
-            color: 'var(--text-dim)',
+            fontWeight: 800,
+            fontSize: '0.55rem',
+            letterSpacing: '0.06em',
+            flexShrink: 0,
           }}
         >
-          {subValue}
+          {badge}
         </span>
       )}
     </div>
   );
 }
 
+function GuaranteeCallout({ icon, text, color = 'var(--accent-cyan)' }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: '10px',
+        padding: '12px 14px',
+        background: `linear-gradient(135deg, ${color}06, transparent)`,
+        border: `1px solid ${color}22`,
+        borderLeft: `3px solid ${color}`,
+        marginBottom: '14px',
+        fontFamily: 'var(--font-mono)',
+        fontSize: '0.68rem',
+        lineHeight: 1.5,
+        color: 'var(--text-label)',
+      }}
+    >
+      <span style={{ color, flexShrink: 0, marginTop: '1px' }}>{icon}</span>
+      <span>{text}</span>
+    </div>
+  );
+}
+
+function ConduitConnector() {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'center',
+        padding: '6px 0',
+      }}
+    >
+      <div
+        style={{
+          width: '2px',
+          height: '28px',
+          background:
+            'repeating-linear-gradient(to bottom, var(--accent-terminal), var(--accent-terminal) 4px, transparent 4px, transparent 8px)',
+          opacity: 0.5,
+        }}
+      />
+    </div>
+  );
+}
+
+function DataMetricCard({ label, value, mono = false }) {
+  return (
+    <div
+      style={{
+        padding: '10px 12px',
+        background: 'var(--bg-recessed)',
+        border: '1px solid var(--border-line)',
+        minWidth: '120px',
+      }}
+    >
+      <div
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: '0.55rem',
+          color: 'var(--text-muted)',
+          letterSpacing: '0.1em',
+          marginBottom: '4px',
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontFamily: mono ? 'var(--font-mono)' : 'var(--font-macro)',
+          fontWeight: mono ? 600 : 700,
+          fontSize: '0.78rem',
+          color: 'var(--text-phosphor)',
+          wordBreak: 'break-all',
+        }}
+      >
+        {value ?? '—'}
+      </div>
+    </div>
+  );
+}
+
 function EvidenceDrawer({
-  isOpen,
+  label,
+  drawerKey,
+  isExpanded,
   onToggle,
-  title,
   data,
   copyKey,
   copiedKey,
   onCopy,
 }) {
+  const jsonStr = data ? JSON.stringify(data, null, 2) : '{}';
   return (
-    <div className="evidence-drawer">
-      <div className="evidence-drawer-header" onClick={onToggle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Terminal size={12} color="var(--accent-terminal)" />
-          <span>{isOpen ? '[- HIDE CRYPTOGRAPHIC EVIDENCE]' : '[+ EXPAND RAW CRYPTOGRAPHIC PROOF]'}</span>
-          <span style={{ color: 'var(--text-muted)' }}>— {title}</span>
-        </div>
-        {isOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-      </div>
-
-      {isOpen && (
-        <div className="evidence-drawer-content">
-          <div
+    <div
+      style={{
+        marginTop: '12px',
+        border: '1px solid var(--border-line)',
+        background: 'var(--bg-recessed)',
+      }}
+    >
+      <button
+        onClick={() => onToggle(drawerKey)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          width: '100%',
+          padding: '8px 12px',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '0.6rem',
+          color: 'var(--text-muted)',
+          letterSpacing: '0.08em',
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        <span>
+          {isExpanded ? '▼' : '▶'} {label}
+        </span>
+        {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+      </button>
+      {isExpanded && (
+        <div
+          style={{
+            padding: '10px 12px',
+            borderTop: '1px solid var(--border-line)',
+            position: 'relative',
+          }}
+        >
+          <button
+            onClick={() => onCopy(jsonStr, copyKey)}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '6px',
+              position: 'absolute',
+              top: '6px',
+              right: '8px',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color:
+                copiedKey === copyKey
+                  ? 'var(--accent-terminal)'
+                  : 'var(--text-muted)',
             }}
           >
-            <span
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: '0.66rem',
-                color: 'var(--text-muted)',
-              }}
-            >
-              AUTHENTIC DATA PAYLOAD:
-            </span>
-            <button
-              className="btn btn-secondary"
-              style={{ padding: '2px 8px', fontSize: '0.64rem' }}
-              onClick={() => onCopy(JSON.stringify(data, null, 2), copyKey)}
-            >
-              {copiedKey === copyKey ? (
-                <>
-                  <Check size={10} color="var(--accent-terminal)" />
-                  <span>COPIED</span>
-                </>
-              ) : (
-                <>
-                  <Copy size={10} />
-                  <span>COPY JSON</span>
-                </>
-              )}
-            </button>
-          </div>
-
+            {copiedKey === copyKey ? (
+              <Check size={12} />
+            ) : (
+              <Copy size={12} />
+            )}
+          </button>
           <pre
             style={{
-              background: 'var(--bg-terminal)',
-              border: '1px solid var(--border-line)',
-              padding: '8px 10px',
               fontFamily: 'var(--font-mono)',
-              fontSize: '0.68rem',
-              color: 'var(--text-secondary)',
+              fontSize: '0.6rem',
+              color: 'var(--text-label)',
+              lineHeight: 1.5,
               overflowX: 'auto',
-              lineHeight: 1.45,
+              maxHeight: '320px',
               margin: 0,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
             }}
           >
-            {JSON.stringify(data, null, 2)}
+            {jsonStr}
           </pre>
         </div>
       )}

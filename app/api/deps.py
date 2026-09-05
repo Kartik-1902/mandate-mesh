@@ -79,8 +79,21 @@ def get_platform_public_key_pem() -> bytes:
 
 
 def get_razorpay_client() -> RazorpayClient:
-    """Returns configured RazorpayClient (defaults to Mock in-memory mode for tests)."""
-    return RazorpayClient(mock_mode=True)
+    """Returns configured RazorpayClient.
+    Uses live Razorpay Test Mode API if valid rzp_test_ keys are configured,
+    otherwise falls back to mock in-memory mode.
+    """
+    from app.config import settings
+    is_live = (
+        bool(settings.RAZORPAY_KEY_ID)
+        and settings.RAZORPAY_KEY_ID.startswith("rzp_test_")
+        and settings.RAZORPAY_KEY_ID != "rzp_test_placeholder"
+    )
+    return RazorpayClient(
+        key_id=settings.RAZORPAY_KEY_ID,
+        key_secret=settings.RAZORPAY_KEY_SECRET,
+        mock_mode=not is_live,
+    )
 
 
 def get_webhook_secret() -> str:
