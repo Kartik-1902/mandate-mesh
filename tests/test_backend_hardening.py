@@ -617,3 +617,56 @@ def test_fix5_standalone_authorize_allowed_when_no_plan_exists(hardening_keys, d
     assert record.mandate_id is not None
     assert record.status == MandateStatus.RESERVED
     assert record.authorized_amount_paise == 50000
+
+
+# =============================================================================
+# FINAL CHECK: execute_plan_leg() fails closed if intent expires_at has passed
+# =============================================================================
+
+def test_execute_plan_leg_fails_closed_when_intent_expires_at_passed(hardening_keys, db_session):
+    """FINAL CHECK: A mandate MUST NOT execute after authoritative IntentRegistry.expires_at has passed,
+    even if IntentRegistry.status has not yet transitioned to EXPIRED."""
+    intent, intent_jwt, item, cart, cart_jwt = _create_test_intent_and_cart(
+        hardening_keys, db_session, price_paise=50000
+    )
+
+    plan_id = uuid4()
+    plan, mandates, records = authorize_plan(
+        intent_jwt=intent_jwt,
+        legs=[{"merchant_id": "merchant_cakehouse_01", "cart_jwt": cart_jwt}],
+        user_public_key_pem=hardening_keys["user"]["public_key_pem"],
+        platform_private_key_pem=hardening_keys["platform"]["private_key_pem"],
+        db=db_session,
+        plan_id=plan_id,
+        merchant_public_keys={"merchant_cakehouse_01": hardening_keys["merchant_cake"]["public_key_pem"]},
+    )
+    rec = records[0]
+    assert rec.status == MandateStatus.RESERVED
+
+    # Retrieve authoritative IntentRegistry and simulate time passing beyond expires_at
+    # while leaving status as ACTIVE (un-transitioned)
+    intent_reg = db_session.query(IntentRegistry).filter_by(intent_id=rec.intent_id).first()
+    assert intent_reg.status == IntentStatus.ACTIVE
+    intent_reg.expires_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    db_session.commit()
+
+    # Attempt leg execution after expires_at has passed
+    rzp = RazorpayClient(key_id="rzp_test", key_secret="rzp_secret")
+    result = execute_plan_leg(
+        mandate_record=rec,
+        db=db_session,
+        rzp_client=rzp,
+        cart_jwt=cart_jwt,
+        merchant_private_key_pem=hardening_keys["merchant_cake"]["private_key_pem"],
+    )
+
+    # Invariant: Must fail closed, release reservation, and report POLICY_INTENT_EXPIRED
+    assert result.status == LegExecutionStatus.RELEASED
+    assert result.error_code == "POLICY_INTENT_EXPIRED"
+    assert result.released_reservation_paise == 50000
+    assert rec.status == MandateStatus.RELEASED
+    assert rec.reserved_paise == 0
+
+    # Ensure no Razorpay order was created
+    assert rec.razorpay_order_id is None
+

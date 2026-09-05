@@ -412,8 +412,17 @@ def execute_plan_leg(
         )
 
     # 3. Revalidate parent intent
+    now = datetime.now(timezone.utc)
     intent_reg = db.query(IntentRegistry).filter_by(intent_id=record.intent_id).first()
-    if not intent_reg or intent_reg.status == IntentStatus.EXPIRED:
+    intent_expired = False
+    if intent_reg and intent_reg.expires_at:
+        exp = intent_reg.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if now >= exp:
+            intent_expired = True
+
+    if not intent_reg or intent_reg.status == IntentStatus.EXPIRED or intent_expired:
         return release_failed_leg(
             mandate_record=record,
             db=db,
